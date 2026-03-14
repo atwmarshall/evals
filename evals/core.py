@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -60,8 +61,8 @@ class RunResult:
 
 @dataclass
 class EvalConfig:
-    model: str = "llama3.2"
-    max_tokens: int = 1024
+    model: str = field(default_factory=lambda: os.environ.get("DEFAULT_MODEL", "llama3.2:3b"))
+    max_tokens: int = field(default_factory=lambda: int(os.environ.get("MAX_TOKENS", "1024")))
     temperature: float = 0.0
     system_prompt: str = ""
     max_retries: int = 3
