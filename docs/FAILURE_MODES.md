@@ -27,6 +27,20 @@ This document is the most valuable output of the weekend.
 
 _Add entries here as you build_
 
+### [date/time] · 1 · short title
+
+**What happened**: exact or normalised useless unless you prompt llm to only return very specific format
+**Why it happened**: llms are chatty and add text around correct answer
+**What it means**: you need to be explicit in the input what output format is needed - what is 1+1 will fail to evaluate to "2" unless you say "ONLY return the number value"
+**How you'd fix it**: be explicit in the prompt
+
+### [date/time] · 1 · short title
+
+**What happened**: failure to access llm doesnt cause endless hang
+**Why it happened**: evals run, retry up to max retries and then output results
+**What it means**: reliable evals completion and not infinite - worst case is max retries OR max retries with last success taking max timeout time.
+**How you'd fix it**: retry logic in Runner.run
+
 ### Challenge 2 · deterministic scoring
 
 _Add entries here as you build_
