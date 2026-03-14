@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from collections.abc import Callable
 from pathlib import Path
@@ -12,6 +13,11 @@ from evals.core import Dataset, EvalConfig
 from evals.reporters import Reporter
 from evals.runner import Runner
 from evals.scorers.exact import exact_match, normalised_match
+from evals.scorers.llm_judge import LLMJudge
+from evals.scorers.regex_scorer import MultiRegexScorer, RegexScorer
+from evals.scorers.schema import JSONSchemaScorer
+
+SCORER_CHOICES = "exact, normalised, regex, multi-regex, schema, judge"
 
 
 def build_scorer(args: argparse.Namespace) -> Callable[[str, str], float]:
@@ -20,8 +26,31 @@ def build_scorer(args: argparse.Namespace) -> Callable[[str, str], float]:
             return exact_match
         case "normalised":
             return normalised_match
+        case "regex":
+            if not args.pattern:
+                sys.exit("--pattern is required for scorer 'regex'")
+            return RegexScorer(args.pattern).score
+        case "multi-regex":
+            if not args.pattern:
+                sys.exit("--pattern is required for scorer 'multi-regex' (comma-separated patterns)")
+            patterns = [p.strip() for p in args.pattern.split(",")]
+            return MultiRegexScorer(patterns).score
+        case "schema":
+            if not args.schema:
+                sys.exit("--schema is required for scorer 'schema' (path to JSON schema file)")
+            schema = json.loads(Path(args.schema).read_text())
+            return JSONSchemaScorer(schema).score
+        case "judge":
+            if not args.criteria:
+                sys.exit("--criteria is required for scorer 'judge'")
+            judge = LLMJudge(
+                criteria=args.criteria,
+                scale=args.scale,
+                **({"model": args.judge_model} if args.judge_model else {}),
+            )
+            return judge.score
         case _:
-            sys.exit(f"Unknown scorer: {args.scorer!r}. Choose from: exact, normalised")
+            sys.exit(f"Unknown scorer: {args.scorer!r}. Choose from: {SCORER_CHOICES}")
 
 
 def main() -> None:
@@ -29,10 +58,16 @@ def main() -> None:
 
     parser = argparse.ArgumentParser(description="Run an LLM eval")
     parser.add_argument("--dataset", required=True, help="Path to JSONL dataset")
-    parser.add_argument("--scorer", required=True, help="Scorer name (exact, normalised)")
+    parser.add_argument("--scorer", required=True, help=f"Scorer name ({SCORER_CHOICES})")
     parser.add_argument("--model", default=None, help="Model ID (overrides DEFAULT_MODEL env var)")
     parser.add_argument("--limit", type=int, default=None, help="Max samples to run")
     parser.add_argument("--output", default=None, help="Results directory (overrides RESULTS_DIR env var)")
+    # Scorer-specific args
+    parser.add_argument("--pattern", default=None, help="Regex pattern(s) for regex/multi-regex scorers")
+    parser.add_argument("--schema", default=None, help="Path to JSON schema file for schema scorer")
+    parser.add_argument("--criteria", default=None, help="Evaluation criteria for judge scorer")
+    parser.add_argument("--scale", type=int, default=5, help="Score scale for judge scorer (default: 5)")
+    parser.add_argument("--judge-model", default=None, help="Model ID for judge (overrides JUDGE_MODEL env var)")
     args = parser.parse_args()
 
     scorer = build_scorer(args)

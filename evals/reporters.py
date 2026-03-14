@@ -30,20 +30,25 @@ class Reporter:
 
         latencies = [r.latency_ms for r in results]
         scores = [r.score for r in results if r.score is not None]
-        error_count = sum(1 for r in results if r.error)
+        api_errors = sum(1 for r in results if r.error and r.score is None and r.completion is None)
+        parse_failures = sum(1 for r in results if r.error and r.score is None and r.completion is not None)
 
         mean_score = statistics.mean(scores) if scores else 0.0
         p50_latency = int(statistics.median(latencies)) if latencies else 0
         sorted_latencies = sorted(latencies)
         p95_latency = sorted_latencies[int(0.95 * len(sorted_latencies))] if sorted_latencies else 0
-        error_rate = error_count / len(results) if results else 0.0
+        total_errors = api_errors + parse_failures
+        error_rate = total_errors / len(results) if results else 0.0
 
-        summary_str = (
-            f"mean_score={mean_score:.3f}  "
-            f"p50_latency={p50_latency}ms  "
-            f"p95_latency={p95_latency}ms  "
-            f"errors={error_count}/{len(results)} ({error_rate:.1%})"
-        )
+        summary_parts = [
+            f"mean_score={mean_score:.3f}",
+            f"p50_latency={p50_latency}ms",
+            f"p95_latency={p95_latency}ms",
+            f"api_errors={api_errors}",
+            f"parse_failures={parse_failures}",
+            f"error_rate={error_rate:.1%}",
+        ]
+        summary_str = "  ".join(summary_parts)
 
         timestamp = datetime.now().strftime("%Y%m%dT%H%M%S")
         self.results_dir.mkdir(parents=True, exist_ok=True)
@@ -57,6 +62,8 @@ class Reporter:
                 "mean_score": mean_score,
                 "p50_latency_ms": p50_latency,
                 "p95_latency_ms": p95_latency,
+                "api_errors": api_errors,
+                "parse_failures": parse_failures,
                 "error_rate": error_rate,
             },
             "results": [
