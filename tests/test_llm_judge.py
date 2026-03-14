@@ -84,3 +84,25 @@ class TestParseResponse:
         score, err = judge._parse_response('{"score": 3, "reasoning": "ok", "extra": "ignored"}')
         assert score == 3
         assert err is None
+
+    def test_backticks_inside_json_not_stripped(self, judge):
+        # Backticks inside the JSON content (e.g. in reasoning) must not be stripped
+        raw = '{"score": 3, "reasoning": "use `x` for this"}'
+        score, err = judge._parse_response(raw)
+        assert score == 3
+        assert err is None
+
+    def test_fence_with_backticks_in_content(self, judge):
+        # Leading/trailing fences stripped, inner backticks preserved
+        raw = '```json\n{"score": 2, "reasoning": "try `foo` instead"}\n```'
+        score, err = judge._parse_response(raw)
+        assert score == 2
+        assert err is None
+
+
+class TestFixtureIsolation:
+    def test_no_directory_created_on_construction(self, tmp_path):
+        from evals.scorers.llm_judge import LLMJudgeScorer
+        judge = LLMJudgeScorer(criteria="test", results_dir=tmp_path)
+        trace_dir = judge._trace_dir
+        assert not trace_dir.exists(), "trace dir should not be created until _write_trace is called"

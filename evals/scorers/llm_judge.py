@@ -4,7 +4,6 @@ import json
 import logging
 import os
 import re
-from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
@@ -18,9 +17,6 @@ You are an impartial evaluator. Score the following answer using the criteria be
 Criteria:
 {criteria}
 
-Question:
-{question}
-
 Answer:
 {answer}
 
@@ -31,7 +27,6 @@ Respond with a JSON object with two fields:
 Respond with JSON only. No other text."""
 
 
-@dataclass
 class LLMJudgeScorer:
     """LLM-based scorer that evaluates completions against a rubric using a judge model.
 
@@ -43,30 +38,34 @@ class LLMJudgeScorer:
     This deliberately breaks the (str, str) -> float contract so that parse
     failures are distinguishable from genuine low scores in the reporter.
 
+    The `expected` argument to __call__ is unused — the rubric is encoded in
+    `criteria` at construction time. The parameter exists only to satisfy the
+    scorer interface.
+
     Traces (prompt, raw response, parsed score, error) are written as JSON to
     results/judge_traces/{session_timestamp}/{trace_timestamp}.json for debugging.
     """
 
-    criteria: str
-    scale: int = 5
-    model: str = field(default_factory=lambda: os.environ.get("JUDGE_MODEL", "llama3.2:3b"))
-    results_dir: Path = field(default_factory=lambda: Path(os.environ.get("RESULTS_DIR", "results")))
-    _session_ts: str = field(init=False)
-    _trace_dir: Path = field(init=False)
-    _client: ollama.Client = field(init=False)
-
-    def __post_init__(self) -> None:
+    def __init__(
+        self,
+        criteria: str,
+        scale: int = 5,
+        model: str | None = None,
+        results_dir: Path | None = None,
+    ) -> None:
+        self.criteria = criteria
+        self.scale = scale
+        self.model = model or os.environ.get("JUDGE_MODEL", "llama3.2:3b")
+        self.results_dir = results_dir or Path(os.environ.get("RESULTS_DIR", "results"))
         self._session_ts = datetime.now().strftime("%Y%m%dT%H%M%S")
         self._trace_dir = self.results_dir / "judge_traces" / self._session_ts
-        self._trace_dir.mkdir(parents=True, exist_ok=True)
         host = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
         self._client = ollama.Client(host=host)
 
-    def __call__(self, completion: str, expected: str) -> float | None:
-        # expected is the rubric/criteria description for judge datasets
+    def __call__(self, completion: str, expected: str) -> float | None:  # noqa: ARG002
+        # expected is unused — the rubric lives in self.criteria
         prompt = _PROMPT_TEMPLATE.format(
             criteria=self.criteria,
-            question=expected,
             answer=completion,
             scale=self.scale,
         )
@@ -97,8 +96,7 @@ class LLMJudgeScorer:
         return final_score
 
     def _parse_response(self, raw: str) -> tuple[int | None, str | None]:
-        # Strip markdown code fences if present
-        text = re.sub(r"```(?:json)?\s*|\s*```", "", raw).strip()
+        text = _strip_fences(raw)
         try:
             obj = json.loads(text)
         except json.JSONDecodeError:
@@ -125,6 +123,7 @@ class LLMJudgeScorer:
         final_score: float | None,
         error: str | None,
     ) -> None:
+        self._trace_dir.mkdir(parents=True, exist_ok=True)
         trace_ts = datetime.now().strftime("%Y%m%dT%H%M%S%f")
         trace_path = self._trace_dir / f"{trace_ts}.json"
         trace = {
@@ -138,3 +137,11 @@ class LLMJudgeScorer:
         }
         trace_path.write_text(json.dumps(trace, indent=2))
         logger.debug("judge trace written to %s", trace_path)
+
+
+def _strip_fences(raw: str) -> str:
+    raw = raw.strip()
+    if raw.startswith("```"):
+        raw = re.sub(r"^```(?:json)?\s*", "", raw)
+        raw = re.sub(r"\s*```$", "", raw)
+    return raw.strip()

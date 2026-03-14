@@ -16,7 +16,7 @@ class Runner:
     def run(
         self,
         dataset: Iterable[Sample],
-        scorer: Callable[[str, str], float],
+        scorer: Callable[[str, str], float | None],
         config: EvalConfig,
     ) -> list[RunResult]:
         host = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
@@ -50,6 +50,8 @@ class Runner:
                     latency_ms = int((time.monotonic() - t0) * 1000)
                     completion = response.message.content
                     score = scorer(completion, sample.expected)
+                    if score is None and last_error is None:
+                        error = "scorer returned None — see judge traces for details"
                     logger.info("sample=%s score=%s", sample.id, score)
                     last_error = None
                     break

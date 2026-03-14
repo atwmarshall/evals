@@ -41,6 +41,20 @@ _Add entries here as you build_
 **What it means**: reliable evals completion and not infinite - worst case is max retries OR max retries with last success taking max timeout time.
 **How you'd fix it**: retry logic in Runner.run
 
+### [date/time] · 2 · short title
+
+**What happened**: on scorer refusal -> better to return None than 0.0
+**Why it happened**: 
+**What it means**: this way we have distinction between failure to run (non-llm issue) and failure off llm to get correct answer and can debug the infra and have those issues flagged vs llm quality issues.
+**How you'd fix it**:
+
+### [date/time] · 2 · short title
+
+**What happened**: test should be added to pure functions as they are written. anything touched by api or the dataset should be validated by running it and checking manually.
+**Why it happened**: 
+**What it means**: 
+**How you'd fix it**:
+
 ### Challenge 2 · deterministic scoring
 
 _Add entries here as you build_
