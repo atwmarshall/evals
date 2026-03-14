@@ -55,6 +55,41 @@ _Add entries here as you build_
 **What it means**: 
 **How you'd fix it**:
 
+### [date/time] · 5 · short title
+
+**What happened**: specifying the output format needed in eval input, for example by adding, ""date" (YYYY-MM-DD string), "amount" (number). Return JSON only, no other text." allows normalised scorer to be used.
+**Why it happened**: llm has no chance if it isn't explicitly told the format needed.
+**What it means**: can save time and tokens with cascade/tiered scorer with first tier being normalised scorer - still too fragile for just exact match scorer or normalised!
+**How you'd fix it**:
+
+### [date/time] · 5 · short title
+
+**What happened**: scorer brittleness - missing or extra 0 - 1240.0 vs 1240.00 can throw off exact or normalised scorers...
+**Why it happened**: 
+**What it means**: expensive llm as judge needed - fast step misses near miss...
+**How you'd fix it**:
+
+### [date/time] · 5 · short title
+
+**What happened**: sometimes llm or judge timeout.
+**Why it happened**: 
+**What it means**: shows as an error
+**How you'd fix it**:
+
+### [date/time] · 5 · short title
+
+**What happened**: sometimes small models fail to format correctly - especially JSON
+**Why it happened**: 
+**What it means**: 
+**How you'd fix it**: 1. be explicit in prompt, 2. sometimes there is a json format mode to set to true, or 3. add function to detect and try and salvage bad json
+
+### [date/time] · 5 · short title
+
+**What happened**: sometimes llms speak to much - "ignore in one sentence" or ignore token limits and just get truncated - which can be fatal for JSON formatting as never closed.
+**Why it happened**: 
+**What it means**: at worst: error parsing as incomplete json. at best: answer is truncated.
+**How you'd fix it**: add detector and close the JSON.
+
 ### Challenge 2 · deterministic scoring
 
 _Add entries here as you build_
