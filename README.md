@@ -3,7 +3,7 @@
 A weekend project to build a working LLM evaluation framework from first principles.
 
 **Goal**: understand how evals work — and why they're hard — by building every layer yourself.  
-**Stack**: Python 3.11+, Anthropic SDK, no eval frameworks.  
+**Stack**: Python 3.11+, Ollama, no eval frameworks.
 **Companion**: see `docs/WEEKEND_PLAN.md` for the full challenge schedule.
 
 ---
@@ -40,7 +40,7 @@ evals-project/
 │   └── OPEN_PROBLEMS.md     # Known hard problems in evals (Challenge 8)
 ├── results/                 # Auto-created — JSON results from each run
 ├── CLAUDE.md                # Context for Claude Code
-├── requirements.txt
+├── pyproject.toml           # Dependencies (managed with uv)
 └── .env.example
 ```
 
@@ -52,22 +52,19 @@ evals-project/
 # 1. clone / enter the project
 cd evals-project
 
-# 2. create a venv
-python -m venv .venv && source .venv/bin/activate
+# 2. install deps (uv creates the venv automatically)
+uv sync
 
-# 3. install deps
-pip install -r requirements.txt
-
-# 4. set your API key
+# 3. configure Ollama connection
 cp .env.example .env
-# edit .env and add your ANTHROPIC_API_KEY
+# edit .env and set OLLAMA_HOST (default: http://localhost:11434)
 
-# 5. run the first eval
-python scripts/run_eval.py --dataset datasets/challenge2/extraction.jsonl --scorer exact
+# 4. run the first eval
+uv run python scripts/run_eval.py --dataset datasets/challenge2/extraction.jsonl --scorer exact
 
-# 6. run the benchmark harness (Challenge 4)
-python scripts/run_eval.py --dataset datasets/challenge2/extraction.jsonl \
-  --scorer schema --models claude-haiku-4-5-20251001 claude-sonnet-4-6
+# 5. run the benchmark harness (Challenge 4)
+uv run python scripts/run_eval.py --dataset datasets/challenge2/extraction.jsonl \
+  --scorer schema --models llama3.2 mistral
 ```
 
 ---

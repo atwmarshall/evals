@@ -74,7 +74,7 @@ These are documented problems you should expect to encounter. Check them off whe
 - [ ] **Scorer brittleness** — exact match fails on semantically correct answers due to formatting
 - [ ] **LLM judge position bias** — judge prefers the answer presented first
 - [ ] **LLM judge verbosity bias** — judge prefers longer answers regardless of quality
-- [ ] **LLM judge self-preference** — Claude judge prefers Claude outputs over other models
+- [ ] **LLM judge self-preference** — a model used as judge tends to prefer outputs from the same model family
 - [ ] **Eval score variance** — small prompt changes cause large score swings
 - [ ] **Dataset contamination** — test examples that appear in training inflate scores
 - [ ] **Reward hacking** — model optimises for eval metric without improving on the underlying task

@@ -70,7 +70,7 @@ Errors are data. A failed API call produces a `RunResult` with `error` set — n
 ```python
 @dataclass
 class EvalConfig:
-    model: str = "claude-haiku-4-5-20251001"
+    model: str = "llama3.2"
     max_tokens: int = 1024
     temperature: float = 0.0
     system_prompt: str = ""
