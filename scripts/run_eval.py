@@ -1,9 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import json
-import sys
-from collections.abc import Callable
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -12,70 +9,7 @@ from tqdm import tqdm
 from evals.core import Dataset, EvalConfig
 from evals.reporters import Reporter
 from evals.runner import Runner
-from evals.scorers.cascade import CascadeScorer
-from evals.scorers.exact import exact_match, normalised_match
-from evals.scorers.llm_judge import LLMJudgeScorer
-from evals.scorers.regex import MultiRegexScorer, RegexScorer
-from evals.scorers.schema import JSONSchemaScorer
-
-SCORER_CHOICES = "exact, normalised, regex, multi-regex, schema, judge, cascade"
-
-# Default schema for the extraction dataset (company/date/amount invoice extraction).
-# Pass --schema to override with a different JSON schema file.
-_EXTRACTION_SCHEMA: dict = {
-    "type": "object",
-    "properties": {
-        "company": {"type": "string"},
-        "date": {"type": "string", "pattern": r"^\d{4}-\d{2}-\d{2}$"},
-        "amount": {"type": "number"},
-    },
-    "required": ["company", "date", "amount"],
-    "additionalProperties": False,
-}
-
-
-
-def build_scorer(args: argparse.Namespace) -> Callable[[str, str], float]:
-    match args.scorer:
-        case "exact":
-            return exact_match
-        case "normalised":
-            return normalised_match
-        case "regex":
-            if not args.pattern:
-                sys.exit(
-                    "--pattern is required for scorer 'regex' "
-                    r"(e.g. --pattern '\d{4}-\d{2}-\d{2}')"
-                )
-            return RegexScorer(args.pattern)
-        case "multi-regex":
-            if not args.pattern:
-                sys.exit(
-                    "--pattern is required for scorer 'multi-regex' "
-                    r"(e.g. --pattern 'company,date,amount' — comma-separated patterns)"
-                )
-            patterns = [p.strip() for p in args.pattern.split(",")]
-            return MultiRegexScorer(patterns)
-        case "schema":
-            if args.schema:
-                schema = json.loads(Path(args.schema).read_text())
-            else:
-                schema = _EXTRACTION_SCHEMA
-            return JSONSchemaScorer(schema)
-        case "judge":
-            return LLMJudgeScorer(
-                scale=args.scale,
-                **({"model": args.judge_model} if args.judge_model else {}),
-            )
-        case "cascade":
-            fast = normalised_match if args.fast_tier == "normalised" else exact_match
-            judge = LLMJudgeScorer(
-                scale=args.scale,
-                **({"model": args.judge_model} if args.judge_model else {}),
-            )
-            return CascadeScorer(fast=fast, judge=judge, threshold=args.threshold)
-        case _:
-            sys.exit(f"Unknown scorer: {args.scorer!r}. Choose from: {SCORER_CHOICES}")
+from evals.scorer_factory import SCORER_CHOICES, build_scorer
 
 
 def main() -> None:
@@ -96,11 +30,10 @@ def main() -> None:
     parser.add_argument("--threshold", type=float, default=1.0, help="Fast-tier threshold for cascade scorer (default: 1.0)")
     args = parser.parse_args()
 
-    scorer = build_scorer(args)
+    config = EvalConfig(model=args.model) if args.model else EvalConfig()
+    scorer = build_scorer(args, evaluated_model=config.model)
 
     ds = Dataset.from_jsonl(args.dataset, limit=args.limit)
-
-    config = EvalConfig(model=args.model) if args.model else EvalConfig()
 
     wrapped = tqdm(ds, total=len(ds), desc="Running eval")
     results = Runner().run(wrapped, scorer, config)
@@ -113,7 +46,7 @@ def main() -> None:
     dataset_name = Path(args.dataset).stem
     scorer_name = args.scorer
 
-    output, path = reporter.report(results, dataset_name, scorer_name)
+    output, path = reporter.report(results, dataset_name, scorer_name, model=config.model)
     print(output)
     print(f"\nSaved → {path}")
 

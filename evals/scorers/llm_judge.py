@@ -47,7 +47,7 @@ class LLMJudgeScorer:
     `ctx.input` provides the original question shown to the model being evaluated.
 
     Traces (prompt, raw response, parsed score, error) are written as JSON to
-    results/judge_traces/{session_timestamp}/{trace_timestamp}.json for debugging.
+    results/judge_traces/{date}/{time}_{evaluated_model}/{sample_id}.json.
     """
 
     def __init__(
@@ -55,14 +55,29 @@ class LLMJudgeScorer:
         scale: int = 5,
         model: str | None = None,
         results_dir: Path | None = None,
+        evaluated_model: str | None = None,
     ) -> None:
         self.scale = scale
         self.model = model or os.environ.get("JUDGE_MODEL", "llama3.2:3b")
         self.results_dir = results_dir or Path(os.environ.get("RESULTS_DIR", "results"))
-        self._session_ts = datetime.now().strftime("%Y%m%dT%H%M%S")
-        self._trace_dir = self.results_dir / "judge_traces" / self._session_ts
+        self._session_dt = datetime.now()
+        self._session_ts = self._session_dt.strftime("%H%M%S")
+        self._evaluated_model = evaluated_model
         host = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
         self._client = ollama.Client(host=host)
+
+    @property
+    def _trace_dir(self) -> Path:
+        date = self._session_dt.strftime("%Y-%m-%d")
+        return (
+            self.results_dir
+            / "judge_traces"
+            / date
+            / f"{self._session_ts}_{self._evaluated_model or 'unknown'}"
+        )
+
+    def set_evaluated_model(self, model_id: str) -> None:
+        self._evaluated_model = model_id
 
     def __call__(self, completion: str, expected: str, ctx: ScorerContext) -> float | None:
         if not expected.strip():
@@ -97,7 +112,7 @@ class LLMJudgeScorer:
             error = str(e)
             logger.error("llm_judge api error: %s", e)
 
-        self._write_trace(prompt, raw_response, parsed_score, final_score, error)
+        self._write_trace(prompt, raw_response, parsed_score, final_score, error, ctx)
 
         if error and final_score is None:
             return None
@@ -130,13 +145,17 @@ class LLMJudgeScorer:
         parsed_score: int | None,
         final_score: float | None,
         error: str | None,
+        ctx: ScorerContext,
     ) -> None:
-        self._trace_dir.mkdir(parents=True, exist_ok=True)
-        trace_ts = datetime.now().strftime("%Y%m%dT%H%M%S%f")
-        trace_path = self._trace_dir / f"{trace_ts}.json"
+        trace_dir = self._trace_dir
+        trace_dir.mkdir(parents=True, exist_ok=True)
+        sample_id = ctx.metadata.get("id", "unknown")
+        trace_path = trace_dir / f"{sample_id}.json"
         trace = {
             "timestamp": datetime.now().isoformat(timespec="milliseconds"),
             "model": self.model,
+            "evaluated_model": self._evaluated_model,
+            "sample_id": sample_id,
             "prompt": prompt,
             "raw_response": raw_response,
             "parsed_score": parsed_score,

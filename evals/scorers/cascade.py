@@ -37,6 +37,9 @@ class CascadeScorer:
         self._judge = judge
         self._threshold = threshold
 
+    def set_evaluated_model(self, model_id: str) -> None:
+        self._judge.set_evaluated_model(model_id)
+
     def __call__(self, completion: str, expected: str, ctx: ScorerContext) -> float | None:
         fast_score = self._fast(completion, expected, ctx)
         if fast_score is not None and fast_score >= self._threshold:

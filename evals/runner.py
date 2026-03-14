@@ -49,7 +49,10 @@ class Runner:
                     )
                     latency_ms = int((time.monotonic() - t0) * 1000)
                     completion = response.message.content
-                    ctx = ScorerContext(input=sample.input, metadata=sample.metadata)
+                    ctx = ScorerContext(
+                        input=sample.input,
+                        metadata={**sample.metadata, "id": sample.id},
+                    )
                     score = scorer(completion, sample.expected, ctx)
                     if score is None and last_error is None:
                         error = "scorer returned None — see judge traces for details"
