@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import pytest
 
+from evals.core import ScorerContext
+
 # _parse_response is tested by instantiating LLMJudgeScorer with a tmp trace dir
 # to avoid touching the filesystem in an unexpected place.
 
@@ -9,7 +11,7 @@ import pytest
 @pytest.fixture
 def judge(tmp_path):
     from evals.scorers.llm_judge import LLMJudgeScorer
-    return LLMJudgeScorer(criteria="Is the answer correct?", scale=5, results_dir=tmp_path)
+    return LLMJudgeScorer(scale=5, results_dir=tmp_path)
 
 
 class TestParseResponse:
@@ -100,9 +102,21 @@ class TestParseResponse:
         assert err is None
 
 
+class TestCallValidation:
+    def test_empty_expected_raises(self, judge):
+        ctx = ScorerContext(input="What is 2+2?")
+        with pytest.raises(ValueError, match="non-empty expected"):
+            judge("four", "", ctx)
+
+    def test_whitespace_only_expected_raises(self, judge):
+        ctx = ScorerContext(input="What is 2+2?")
+        with pytest.raises(ValueError, match="non-empty expected"):
+            judge("four", "   ", ctx)
+
+
 class TestFixtureIsolation:
     def test_no_directory_created_on_construction(self, tmp_path):
         from evals.scorers.llm_judge import LLMJudgeScorer
-        judge = LLMJudgeScorer(criteria="test", results_dir=tmp_path)
+        judge = LLMJudgeScorer(results_dir=tmp_path)
         trace_dir = judge._trace_dir
         assert not trace_dir.exists(), "trace dir should not be created until _write_trace is called"

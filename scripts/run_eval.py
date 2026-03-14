@@ -32,7 +32,6 @@ _EXTRACTION_SCHEMA: dict = {
     "additionalProperties": False,
 }
 
-_DEFAULT_JUDGE_CRITERIA = "The answer should be accurate, concise, and relevant."
 
 
 def build_scorer(args: argparse.Namespace) -> Callable[[str, str], float]:
@@ -63,9 +62,7 @@ def build_scorer(args: argparse.Namespace) -> Callable[[str, str], float]:
                 schema = _EXTRACTION_SCHEMA
             return JSONSchemaScorer(schema)
         case "judge":
-            criteria = args.criteria or _DEFAULT_JUDGE_CRITERIA
             return LLMJudgeScorer(
-                criteria=criteria,
                 scale=args.scale,
                 **({"model": args.judge_model} if args.judge_model else {}),
             )
@@ -85,7 +82,6 @@ def main() -> None:
     # Scorer-specific args
     parser.add_argument("--pattern", default=None, help="Regex pattern(s) for regex/multi-regex scorers")
     parser.add_argument("--schema", default=None, help="Path to JSON schema file for schema scorer")
-    parser.add_argument("--criteria", default=None, help="Evaluation criteria for judge scorer")
     parser.add_argument("--scale", type=int, default=5, help="Score scale for judge scorer (default: 5)")
     parser.add_argument("--judge-model", default=None, help="Model ID for judge (overrides JUDGE_MODEL env var)")
     args = parser.parse_args()

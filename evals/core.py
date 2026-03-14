@@ -60,6 +60,21 @@ class RunResult:
 
 
 @dataclass
+class ScorerContext:
+    """Extra context passed to every scorer alongside completion and expected.
+
+    Pure scorers (exact_match, RegexScorer, etc.) accept this parameter but
+    ignore it. Scorers that need the original question or metadata (LLMJudge,
+    faithfulness) read from it.
+
+    Populated by Runner from the current Sample before each scorer call.
+    """
+
+    input: str = ""
+    metadata: dict = field(default_factory=dict)
+
+
+@dataclass
 class EvalConfig:
     model: str = field(default_factory=lambda: os.environ.get("DEFAULT_MODEL", "llama3.2:3b"))
     max_tokens: int = field(default_factory=lambda: int(os.environ.get("MAX_TOKENS", "1024")))

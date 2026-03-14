@@ -9,6 +9,8 @@ from pathlib import Path
 
 import ollama
 
+from evals.core import ScorerContext
+
 logger = logging.getLogger(__name__)
 
 _PROMPT_TEMPLATE = """\
@@ -16,6 +18,9 @@ You are an impartial evaluator. Score the following answer using the criteria be
 
 Criteria:
 {criteria}
+
+Question:
+{question}
 
 Answer:
 {answer}
@@ -34,13 +39,12 @@ class LLMJudgeScorer:
     (score - 1) / (scale - 1). So score=1 → 0.0, score=scale → 1.0.
 
     Unlike other scorers, __call__ returns float | None. None signals a judge
-    failure (API error or unparseable response) and is stored in RunResult.error.
-    This deliberately breaks the (str, str) -> float contract so that parse
-    failures are distinguishable from genuine low scores in the reporter.
+    failure (API error or unparseable response). The runner records this as an
+    error in RunResult so reporters can distinguish parse failures from genuine
+    low scores.
 
-    The `expected` argument to __call__ is unused — the rubric is encoded in
-    `criteria` at construction time. The parameter exists only to satisfy the
-    scorer interface.
+    `expected` provides the per-sample scoring rubric and must be non-empty.
+    `ctx.input` provides the original question shown to the model being evaluated.
 
     Traces (prompt, raw response, parsed score, error) are written as JSON to
     results/judge_traces/{session_timestamp}/{trace_timestamp}.json for debugging.
@@ -48,12 +52,10 @@ class LLMJudgeScorer:
 
     def __init__(
         self,
-        criteria: str,
         scale: int = 5,
         model: str | None = None,
         results_dir: Path | None = None,
     ) -> None:
-        self.criteria = criteria
         self.scale = scale
         self.model = model or os.environ.get("JUDGE_MODEL", "llama3.2:3b")
         self.results_dir = results_dir or Path(os.environ.get("RESULTS_DIR", "results"))
@@ -62,10 +64,16 @@ class LLMJudgeScorer:
         host = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
         self._client = ollama.Client(host=host)
 
-    def __call__(self, completion: str, expected: str) -> float | None:  # noqa: ARG002
-        # expected is unused — the rubric lives in self.criteria
+    def __call__(self, completion: str, expected: str, ctx: ScorerContext) -> float | None:
+        if not expected.strip():
+            raise ValueError(
+                "LLMJudgeScorer requires a non-empty expected value — "
+                "it provides the per-sample scoring criteria"
+            )
+
         prompt = _PROMPT_TEMPLATE.format(
-            criteria=self.criteria,
+            criteria=expected,
+            question=ctx.input,
             answer=completion,
             scale=self.scale,
         )
