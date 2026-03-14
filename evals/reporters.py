@@ -103,6 +103,7 @@ class Reporter:
             for r in results:
                 f.write(json.dumps({
                     "id": r.sample.id,
+                    "expected": r.sample.expected,
                     "score": r.score,
                     "latency_ms": r.latency_ms,
                     "completion": r.completion,
@@ -150,6 +151,7 @@ class Reporter:
                 for r in results:
                     f.write(json.dumps({
                         "id": r.sample.id,
+                        "expected": r.sample.expected,
                         "score": r.score,
                         "latency_ms": r.latency_ms,
                         "completion": r.completion,
