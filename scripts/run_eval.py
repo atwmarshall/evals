@@ -12,12 +12,13 @@ from tqdm import tqdm
 from evals.core import Dataset, EvalConfig
 from evals.reporters import Reporter
 from evals.runner import Runner
+from evals.scorers.cascade import CascadeScorer
 from evals.scorers.exact import exact_match, normalised_match
 from evals.scorers.llm_judge import LLMJudgeScorer
 from evals.scorers.regex import MultiRegexScorer, RegexScorer
 from evals.scorers.schema import JSONSchemaScorer
 
-SCORER_CHOICES = "exact, normalised, regex, multi-regex, schema, judge"
+SCORER_CHOICES = "exact, normalised, regex, multi-regex, schema, judge, cascade"
 
 # Default schema for the extraction dataset (company/date/amount invoice extraction).
 # Pass --schema to override with a different JSON schema file.
@@ -66,6 +67,13 @@ def build_scorer(args: argparse.Namespace) -> Callable[[str, str], float]:
                 scale=args.scale,
                 **({"model": args.judge_model} if args.judge_model else {}),
             )
+        case "cascade":
+            fast = normalised_match if args.fast_tier == "normalised" else exact_match
+            judge = LLMJudgeScorer(
+                scale=args.scale,
+                **({"model": args.judge_model} if args.judge_model else {}),
+            )
+            return CascadeScorer(fast=fast, judge=judge, threshold=args.threshold)
         case _:
             sys.exit(f"Unknown scorer: {args.scorer!r}. Choose from: {SCORER_CHOICES}")
 
@@ -84,6 +92,8 @@ def main() -> None:
     parser.add_argument("--schema", default=None, help="Path to JSON schema file for schema scorer")
     parser.add_argument("--scale", type=int, default=5, help="Score scale for judge scorer (default: 5)")
     parser.add_argument("--judge-model", default=None, help="Model ID for judge (overrides JUDGE_MODEL env var)")
+    parser.add_argument("--fast-tier", default="normalised", choices=["exact", "normalised"], help="Fast tier for cascade scorer (default: normalised)")
+    parser.add_argument("--threshold", type=float, default=1.0, help="Fast-tier threshold for cascade scorer (default: 1.0)")
     args = parser.parse_args()
 
     scorer = build_scorer(args)
