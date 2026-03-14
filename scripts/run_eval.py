@@ -19,6 +19,21 @@ from evals.scorers.schema import JSONSchemaScorer
 
 SCORER_CHOICES = "exact, normalised, regex, multi-regex, schema, judge"
 
+# Default schema for the extraction dataset (company/date/amount invoice extraction).
+# Pass --schema to override with a different JSON schema file.
+_EXTRACTION_SCHEMA: dict = {
+    "type": "object",
+    "properties": {
+        "company": {"type": "string"},
+        "date": {"type": "string", "pattern": r"^\d{4}-\d{2}-\d{2}$"},
+        "amount": {"type": "number"},
+    },
+    "required": ["company", "date", "amount"],
+    "additionalProperties": False,
+}
+
+_DEFAULT_JUDGE_CRITERIA = "The answer should be accurate, concise, and relevant."
+
 
 def build_scorer(args: argparse.Namespace) -> Callable[[str, str], float]:
     match args.scorer:
@@ -28,23 +43,29 @@ def build_scorer(args: argparse.Namespace) -> Callable[[str, str], float]:
             return normalised_match
         case "regex":
             if not args.pattern:
-                sys.exit("--pattern is required for scorer 'regex'")
+                sys.exit(
+                    "--pattern is required for scorer 'regex' "
+                    r"(e.g. --pattern '\d{4}-\d{2}-\d{2}')"
+                )
             return RegexScorer(args.pattern)
         case "multi-regex":
             if not args.pattern:
-                sys.exit("--pattern is required for scorer 'multi-regex' (comma-separated patterns)")
+                sys.exit(
+                    "--pattern is required for scorer 'multi-regex' "
+                    r"(e.g. --pattern 'company,date,amount' — comma-separated patterns)"
+                )
             patterns = [p.strip() for p in args.pattern.split(",")]
             return MultiRegexScorer(patterns)
         case "schema":
-            if not args.schema:
-                sys.exit("--schema is required for scorer 'schema' (path to JSON schema file)")
-            schema = json.loads(Path(args.schema).read_text())
+            if args.schema:
+                schema = json.loads(Path(args.schema).read_text())
+            else:
+                schema = _EXTRACTION_SCHEMA
             return JSONSchemaScorer(schema)
         case "judge":
-            if not args.criteria:
-                sys.exit("--criteria is required for scorer 'judge'")
+            criteria = args.criteria or _DEFAULT_JUDGE_CRITERIA
             return LLMJudgeScorer(
-                criteria=args.criteria,
+                criteria=criteria,
                 scale=args.scale,
                 **({"model": args.judge_model} if args.judge_model else {}),
             )
