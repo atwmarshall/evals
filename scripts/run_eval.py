@@ -13,8 +13,8 @@ from evals.core import Dataset, EvalConfig
 from evals.reporters import Reporter
 from evals.runner import Runner
 from evals.scorers.exact import exact_match, normalised_match
-from evals.scorers.llm_judge import LLMJudge
-from evals.scorers.regex_scorer import MultiRegexScorer, RegexScorer
+from evals.scorers.llm_judge import LLMJudgeScorer
+from evals.scorers.regex import MultiRegexScorer, RegexScorer
 from evals.scorers.schema import JSONSchemaScorer
 
 SCORER_CHOICES = "exact, normalised, regex, multi-regex, schema, judge"
@@ -29,26 +29,25 @@ def build_scorer(args: argparse.Namespace) -> Callable[[str, str], float]:
         case "regex":
             if not args.pattern:
                 sys.exit("--pattern is required for scorer 'regex'")
-            return RegexScorer(args.pattern).score
+            return RegexScorer(args.pattern)
         case "multi-regex":
             if not args.pattern:
                 sys.exit("--pattern is required for scorer 'multi-regex' (comma-separated patterns)")
             patterns = [p.strip() for p in args.pattern.split(",")]
-            return MultiRegexScorer(patterns).score
+            return MultiRegexScorer(patterns)
         case "schema":
             if not args.schema:
                 sys.exit("--schema is required for scorer 'schema' (path to JSON schema file)")
             schema = json.loads(Path(args.schema).read_text())
-            return JSONSchemaScorer(schema).score
+            return JSONSchemaScorer(schema)
         case "judge":
             if not args.criteria:
                 sys.exit("--criteria is required for scorer 'judge'")
-            judge = LLMJudge(
+            return LLMJudgeScorer(
                 criteria=args.criteria,
                 scale=args.scale,
                 **({"model": args.judge_model} if args.judge_model else {}),
             )
-            return judge.score
         case _:
             sys.exit(f"Unknown scorer: {args.scorer!r}. Choose from: {SCORER_CHOICES}")
 

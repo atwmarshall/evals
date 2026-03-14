@@ -2,14 +2,14 @@ from __future__ import annotations
 
 import pytest
 
-# _parse_response is tested by instantiating LLMJudge with a tmp trace dir
+# _parse_response is tested by instantiating LLMJudgeScorer with a tmp trace dir
 # to avoid touching the filesystem in an unexpected place.
 
 
 @pytest.fixture
 def judge(tmp_path):
-    from evals.scorers.llm_judge import LLMJudge
-    return LLMJudge(criteria="Is the answer correct?", scale=5, results_dir=tmp_path)
+    from evals.scorers.llm_judge import LLMJudgeScorer
+    return LLMJudgeScorer(criteria="Is the answer correct?", scale=5, results_dir=tmp_path)
 
 
 class TestParseResponse:

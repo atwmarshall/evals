@@ -32,7 +32,21 @@ Respond with JSON only. No other text."""
 
 
 @dataclass
-class LLMJudge:
+class LLMJudgeScorer:
+    """LLM-based scorer that evaluates completions against a rubric using a judge model.
+
+    Internally uses a 1–scale integer rating, normalised to 0.0–1.0 via
+    (score - 1) / (scale - 1). So score=1 → 0.0, score=scale → 1.0.
+
+    Unlike other scorers, __call__ returns float | None. None signals a judge
+    failure (API error or unparseable response) and is stored in RunResult.error.
+    This deliberately breaks the (str, str) -> float contract so that parse
+    failures are distinguishable from genuine low scores in the reporter.
+
+    Traces (prompt, raw response, parsed score, error) are written as JSON to
+    results/judge_traces/{session_timestamp}/{trace_timestamp}.json for debugging.
+    """
+
     criteria: str
     scale: int = 5
     model: str = field(default_factory=lambda: os.environ.get("JUDGE_MODEL", "llama3.2:3b"))
@@ -48,7 +62,7 @@ class LLMJudge:
         host = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
         self._client = ollama.Client(host=host)
 
-    def score(self, completion: str, expected: str) -> float | None:
+    def __call__(self, completion: str, expected: str) -> float | None:
         # expected is the rubric/criteria description for judge datasets
         prompt = _PROMPT_TEMPLATE.format(
             criteria=self.criteria,
