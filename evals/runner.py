@@ -3,11 +3,11 @@ from __future__ import annotations
 import logging
 import os
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 
 import ollama
 
-from evals.core import Dataset, EvalConfig, RunResult
+from evals.core import EvalConfig, RunResult, Sample
 
 logger = logging.getLogger(__name__)
 
@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 class Runner:
     def run(
         self,
-        dataset: Dataset,
+        dataset: Iterable[Sample],
         scorer: Callable[[str, str], float],
         config: EvalConfig,
     ) -> list[RunResult]:
