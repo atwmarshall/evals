@@ -155,6 +155,13 @@ class TestReport:
         assert len(lines) == 2
         assert json.loads(lines[0])["id"] == "a"
 
+    def test_samples_jsonl_contains_expected(self, tmp_path):
+        r = Reporter(results_dir=tmp_path)
+        results = [_make_result()]
+        _, run_dir = r.report(results, "ds", "exact", model="m")
+        row = json.loads((run_dir / "samples.jsonl").read_text().strip())
+        assert row["expected"] == "a"
+
     def test_model_colon_sanitised_in_dirname(self, tmp_path):
         r = Reporter(results_dir=tmp_path)
         results = [_make_result()]
@@ -211,6 +218,13 @@ class TestBenchmarkReport:
         _, bench_dir = r.benchmark_report(model_results, "ds", "exact")
         payload = json.loads((bench_dir / "benchmark.json").read_text())
         assert set(payload["models"].keys()) == {"m1", "m2"}
+
+    def test_per_model_jsonl_contains_expected(self, tmp_path):
+        r = Reporter(results_dir=tmp_path)
+        model_results = [("m1", [_make_result()])]
+        _, bench_dir = r.benchmark_report(model_results, "ds", "exact")
+        row = json.loads((bench_dir / "m1.jsonl").read_text().strip())
+        assert row["expected"] == "a"
 
 
 # ---------------------------------------------------------------------------

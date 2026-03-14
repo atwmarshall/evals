@@ -36,9 +36,15 @@ def _short(text: str | None, n: int = 200) -> str:
     return text[:n] + "…" if len(text) > n else text
 
 
+def _is_failure(r: dict) -> bool:
+    s = r.get("score")
+    return s is None or s < 1.0
+
+
 def _error_type(row: dict) -> str:
-    if row.get("score") is not None:
-        return "ok"
+    score = row.get("score")
+    if score is not None:
+        return "pass" if score >= 1.0 else "fail"
     err = row.get("error") or ""
     if "timed out" in err:
         return "timeout"
@@ -46,7 +52,7 @@ def _error_type(row: dict) -> str:
         return "parse_failure"
     if err:
         return "api_error"
-    return "ok"
+    return "pass"
 
 
 def _find_trace(results_dir: Path, date: str, model_id: str, sample_id: str) -> dict | None:
@@ -68,7 +74,7 @@ def _find_trace(results_dir: Path, date: str, model_id: str, sample_id: str) -> 
 # benchmark mode
 # ---------------------------------------------------------------------------
 
-def inspect_benchmark(bench_dir: Path, verbose: bool, sample_id: str | None = None) -> None:
+def inspect_benchmark(bench_dir: Path, verbose: bool, sample_id: str | None = None, failures_only: bool = False) -> None:
     meta = json.loads((bench_dir / "benchmark.json").read_text())
     date = bench_dir.parent.name  # results/benchmarks/{date}/...
     results_dir = bench_dir.parent.parent.parent  # results/
@@ -81,27 +87,28 @@ def inspect_benchmark(bench_dir: Path, verbose: bool, sample_id: str | None = No
 
     # --- --id: show one sample across all models ---
     if sample_id:
-        _benchmark_sample(bench_dir, meta, results_dir, date, sample_id, verbose)
+        _benchmark_sample(bench_dir, meta, results_dir, date, sample_id, verbose, failures_only=failures_only)
         return
 
-    # --- comparison table from benchmark.json ---
-    table_rows = []
-    for model_id, s in meta["models"].items():
-        mean = f"{s['mean_score']:.3f}" if s["mean_score"] is not None else "—"
-        p95_str = f"{s['p95_latency_ms']}ms"
-        if s.get("n", 99) < 20:
-            p95_str += f" (n={s['n']}⚠)"
-        table_rows.append([
-            model_id,
-            mean,
-            f"{s['p50_latency_ms']}ms",
-            p95_str,
-            f"{s['error_rate']:.1%}",
-            s["api_errors"] + s["parse_failures"],
-        ])
-    print(tabulate(table_rows,
-                   headers=["model", "mean_score", "p50", "p95", "error_rate", "n_errors"],
-                   tablefmt="simple"))
+    # --- comparison table from benchmark.json (suppressed with --failures-only) ---
+    if not failures_only:
+        table_rows = []
+        for model_id, s in meta["models"].items():
+            mean = f"{s['mean_score']:.3f}" if s["mean_score"] is not None else "—"
+            p95_str = f"{s['p95_latency_ms']}ms"
+            if s.get("n", 99) < 20:
+                p95_str += f" (n={s['n']}⚠)"
+            table_rows.append([
+                model_id,
+                mean,
+                f"{s['p50_latency_ms']}ms",
+                p95_str,
+                f"{s['error_rate']:.1%}",
+                s["api_errors"] + s["parse_failures"],
+            ])
+        print(tabulate(table_rows,
+                       headers=["model", "mean_score", "p50", "p95", "error_rate", "n_errors"],
+                       tablefmt="simple"))
 
     # --- error breakdown ---
     any_errors = False
@@ -109,7 +116,7 @@ def inspect_benchmark(bench_dir: Path, verbose: bool, sample_id: str | None = No
         # reverse-engineer model_id from filename: replace _ with : for the colon, but
         # we can't perfectly invert sanitisation — use benchmark.json model keys instead
         rows = _load_jsonl(jsonl_path)
-        failures = [r for r in rows if _error_type(r) != "ok"]
+        failures = [r for r in rows if _error_type(r) not in ("pass", "fail")]
         if not failures:
             continue
 
@@ -167,16 +174,27 @@ def _benchmark_sample(
     date: str,
     sample_id: str,
     verbose: bool,
+    failures_only: bool = False,
 ) -> None:
     print(f"── sample {sample_id} across all models ──\n")
     found_any = False
+    expected_shown = False
     for jsonl_path in sorted(bench_dir.glob("*.jsonl")):
         rows = _load_jsonl(jsonl_path)
         matches = [r for r in rows if r.get("id") == sample_id]
         if not matches:
             continue
-        found_any = True
         r = matches[0]
+
+        if failures_only and not _is_failure(r):
+            continue
+
+        found_any = True
+        # show expected once at the top (same for all models)
+        if not expected_shown and r.get("expected") is not None:
+            print(f"expected:  {r['expected']}\n")
+            expected_shown = True
+
         stem = jsonl_path.stem
         model_id = next(
             (m for m in meta["models"] if stem == m.replace(":", "_").replace("/", "_")),
@@ -199,14 +217,17 @@ def _benchmark_sample(
         print()
 
     if not found_any:
-        print(f"Sample {sample_id!r} not found in any model jsonl under {bench_dir}")
+        if failures_only:
+            print(f"No failures found for sample {sample_id!r} across all models.")
+        else:
+            print(f"Sample {sample_id!r} not found in any model jsonl under {bench_dir}")
 
 
 # ---------------------------------------------------------------------------
 # run mode
 # ---------------------------------------------------------------------------
 
-def inspect_run(run_dir: Path, verbose: bool, sample_id: str | None = None) -> None:
+def inspect_run(run_dir: Path, verbose: bool, sample_id: str | None = None, failures_only: bool = False) -> None:
     meta = json.loads((run_dir / "run.json").read_text())
     rows = _load_jsonl(run_dir / "samples.jsonl")
 
@@ -222,10 +243,13 @@ def inspect_run(run_dir: Path, verbose: bool, sample_id: str | None = None) -> N
             sys.exit(1)
         r = matches[0]
         print(f"id={r['id']}  score={r.get('score')}  latency={r.get('latency_ms')}ms  type={_error_type(r)}")
+        if r.get("expected") is not None:
+            print(f"expected:  {r['expected']}")
         print(f"error: {r.get('error')}")
         print(f"\ncompletion:\n{r.get('completion') or '(none)'}")
         return
 
+    display_rows = [r for r in rows if _is_failure(r)] if failures_only else rows
     table = [
         [
             r["id"],
@@ -234,11 +258,13 @@ def inspect_run(run_dir: Path, verbose: bool, sample_id: str | None = None) -> N
             _error_type(r),
             _short(r.get("error") or "", 60),
         ]
-        for r in rows
+        for r in display_rows
     ]
+    if failures_only:
+        print(f"(failures only: {len(display_rows)}/{len(rows)})\n")
     print(tabulate(table, headers=["id", "score", "latency_ms", "type", "error"], tablefmt="simple"))
 
-    failures = [r for r in rows if _error_type(r) != "ok"]
+    failures = [r for r in rows if _error_type(r) != "pass"]
     if failures and verbose:
         print("\n── COMPLETIONS FOR FAILURES " + "─" * 50)
         for r in failures:
@@ -251,7 +277,7 @@ def inspect_run(run_dir: Path, verbose: bool, sample_id: str | None = None) -> N
 # jsonl/sample mode
 # ---------------------------------------------------------------------------
 
-def inspect_jsonl(path: Path, sample_id: str | None, verbose: bool) -> None:
+def inspect_jsonl(path: Path, sample_id: str | None, verbose: bool, failures_only: bool = False) -> None:
     rows = _load_jsonl(path)
 
     if sample_id:
@@ -261,10 +287,13 @@ def inspect_jsonl(path: Path, sample_id: str | None, verbose: bool) -> None:
             sys.exit(1)
         r = matches[0]
         print(f"id={r['id']}  score={r.get('score')}  latency={r.get('latency_ms')}ms")
+        if r.get("expected") is not None:
+            print(f"expected:  {r['expected']}")
         print(f"error: {r.get('error')}")
         print(f"\ncompletion:\n{r.get('completion') or '(none)'}")
         return
 
+    display_rows = [r for r in rows if _is_failure(r)] if failures_only else rows
     table = [
         [
             r.get("id"),
@@ -273,9 +302,10 @@ def inspect_jsonl(path: Path, sample_id: str | None, verbose: bool) -> None:
             _error_type(r),
             _short(r.get("error") or "", 60),
         ]
-        for r in rows
+        for r in display_rows
     ]
-    print(f"{path}  ({len(rows)} samples)\n")
+    label = f"  (failures only: {len(display_rows)}/{len(rows)})" if failures_only else f"  ({len(rows)} samples)"
+    print(f"{path}{label}\n")
     print(tabulate(table, headers=["id", "score", "latency_ms", "type", "error"], tablefmt="simple"))
 
     if verbose:
@@ -290,35 +320,40 @@ def inspect_jsonl(path: Path, sample_id: str | None, verbose: bool) -> None:
 # traces mode
 # ---------------------------------------------------------------------------
 
-def inspect_traces(traces_dir: Path, verbose: bool) -> None:
+def inspect_traces(traces_dir: Path, verbose: bool, failures_only: bool = False) -> None:
     """Summarise judge traces under a session directory."""
     trace_files = sorted(traces_dir.glob("*.json"))
     if not trace_files:
         print(f"No trace files found in {traces_dir}")
         sys.exit(1)
 
-    print(f"TRACES  dir={traces_dir}  ({len(trace_files)} samples)\n")
-
-    rows = []
+    all_rows = []
     for tf in trace_files:
         t = json.loads(tf.read_text())
         status = "ok" if t.get("final_score") is not None else "fail"
-        rows.append([
+        all_rows.append((tf, t, status))
+
+    display = [(tf, t, s) for tf, t, s in all_rows if s != "ok"] if failures_only else all_rows
+    label = f"  (failures only: {len(display)}/{len(all_rows)})" if failures_only else f"  ({len(all_rows)} samples)"
+    print(f"TRACES  dir={traces_dir}{label}\n")
+
+    rows = [
+        [
             t.get("sample_id", tf.stem),
             t.get("evaluated_model", "?"),
             f"{t['final_score']:.2f}" if t.get("final_score") is not None else "—",
             t.get("parsed_score"),
-            status,
+            s,
             _short(t.get("error") or "", 80),
-        ])
-
+        ]
+        for tf, t, s in display
+    ]
     print(tabulate(rows,
                    headers=["sample_id", "evaluated_model", "score", "raw_score", "status", "error"],
                    tablefmt="simple"))
 
     if verbose:
-        for tf in trace_files:
-            t = json.loads(tf.read_text())
+        for tf, t, s in display:
             if t.get("error"):
                 print(f"\n── {tf.stem} ──")
                 print(f"raw_response: {_short(t.get('raw_response', ''), 400)}")
@@ -333,6 +368,7 @@ def main() -> None:
     parser.add_argument("path", help="Benchmark dir / run dir / .jsonl file / traces dir")
     parser.add_argument("--id", default=None, help="Show a specific sample by ID")
     parser.add_argument("--verbose", "-v", action="store_true", help="Show full completions")
+    parser.add_argument("--failures-only", "-f", action="store_true", help="Show only samples with score < 1.0 or score=None")
     args = parser.parse_args()
 
     path = Path(args.path)
@@ -341,15 +377,22 @@ def main() -> None:
         sys.exit(1)
 
     if path.is_file() and path.suffix == ".jsonl":
-        inspect_jsonl(path, args.id, args.verbose)
+        inspect_jsonl(path, args.id, args.verbose, failures_only=args.failures_only)
     elif path.is_dir() and (path / "benchmark.json").exists():
-        inspect_benchmark(path, args.verbose, sample_id=args.id)
+        inspect_benchmark(path, args.verbose, sample_id=args.id, failures_only=args.failures_only)
     elif path.is_dir() and (path / "run.json").exists():
-        inspect_run(path, args.verbose, sample_id=args.id)
+        inspect_run(path, args.verbose, sample_id=args.id, failures_only=args.failures_only)
     elif path.is_dir() and any(path.glob("*.json")):
-        inspect_traces(path, args.verbose)
+        inspect_traces(path, args.verbose, failures_only=args.failures_only)
     else:
         print(f"Cannot determine type of {path}")
+        if path.is_dir():
+            candidates = sorted(d for d in path.iterdir() if d.is_dir() and any(d.glob("*.json")))
+            if candidates:
+                print("\nDid you mean one of these?")
+                for c in candidates:
+                    print(f"  {c.name}/")
+                sys.exit(1)
         print("Expected: benchmark dir (has benchmark.json), run dir (has run.json), .jsonl file, or traces dir")
         sys.exit(1)
 
