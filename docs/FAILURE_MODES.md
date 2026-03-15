@@ -91,9 +91,21 @@ _Add entries here as you build_
 **How you'd fix it**: add detector and close the JSON.
 **Status**: implemented — `evals/scorers/_json_utils.py::_repair_truncated_json()` is applied automatically by `JSONSchemaScorer` and `LLMJudgeScorer`.
 
+### [date/time] · 6 · short title
+**What happened**: to measure scorer reliability, we generate datasets with variation but we shouldnt use the judge model for this as that's the model that is our scorer!
+**Why it happened**: shouldnt be the model we are evaluating either
+**What it means**: Add a VARIATION_MODEL env var to .env.example and make it fail loudly if judge model = variation model.
+**How you'd fix it**:
+
 ### Challenge 2 · deterministic scoring
 
-_Add entries here as you build_
+### 2026-03-15 · 2/5 · partial credit blindness in run output
+
+**What happened**: `JSONSchemaScorer` returns 0.75 for "one field failed validation" and `LLMJudgeScorer` returns 0.75 for "good but not perfect". Both showed as `type=fail` in the results table, collapsing near-misses and genuine failures into one category — different problems that need different responses.
+**Why it happened**: The `type` column was a binary pass/fail derived from `score == 1.0`, with no intermediate tier. The column name `type` also gave no indication of what it represented.
+**What it means**: You can't act on results you can't distinguish. A `partial` outcome (score 0.5–1.0) needs investigation of why the model is close but not exact; a `fail` outcome (score < 0.5) needs a different response entirely (prompt redesign, model swap). Mixing them hides the signal.
+**How you'd fix it**: Add a `partial` outcome tier. Rename `type` → `outcome`. Column order: `id score outcome latency_ms`. Add `--strict` flag to `show.py` to filter to score < 0.5 only.
+**Status**: implemented — `_outcome()` in `show.py`, `_outcome_str()` in `reporters.py`, `--strict` / `-s` flag added.
 
 ### Challenge 3 · LLM-as-judge
 
@@ -144,6 +156,6 @@ These are documented problems you should expect to encounter. Check them off whe
 - [ ] **Reward hacking** — model optimises for eval metric without improving on the underlying task
 - [ ] **Metric-task misalignment** — high eval scores don't predict good user experience
 - [ ] **Distribution gap** — eval dataset doesn't represent real-world input distribution
-- [ ] **Partial credit blindness** — binary scorers can't distinguish "almost right" from "completely wrong"
+- [x] **Partial credit blindness** — binary scorers can't distinguish "almost right" from "completely wrong"
 - [ ] **Faithfulness-quality tension** — faithful answers and high-quality answers aren't always the same
 - [ ] **Latency-quality tradeoff** — stronger models score higher but slower; eval doesn't capture UX cost

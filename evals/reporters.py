@@ -60,6 +60,13 @@ class Reporter:
             "judge_rate": judge_rate,
         }
 
+    @staticmethod
+    def _outcome_str(r: RunResult) -> str:
+        if r.score is None:   return "error"
+        if r.score >= 1.0:    return "pass"
+        if r.score >= 0.5:    return "partial"
+        return "fail"
+
     def report(
         self,
         results: list[RunResult],
@@ -75,6 +82,7 @@ class Reporter:
             row = [
                 r.sample.id,
                 f"{r.score:.2f}" if r.score is not None else "—",
+                self._outcome_str(r),
                 r.latency_ms,
             ]
             if has_tier:
@@ -94,7 +102,7 @@ class Reporter:
             row.append(r.error or "")
             rows.append(row)
 
-        headers = ["id", "score", "latency_ms"]
+        headers = ["id", "score", "outcome", "latency_ms"]
         if has_tier:
             headers.append("tier_used")
         if has_format:
