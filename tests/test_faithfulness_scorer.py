@@ -164,13 +164,15 @@ class TestContextSufficiencyScorer:
         ctx = _ctx(context=["Some context."])
         scorer("expected", ctx)
         assert ctx.metadata_out.get("context_sufficiency_format_status") == "clean"
+        assert ctx.metadata_out.get("sufficiency_reasoning") == "YES"
 
     def test_format_status_clean_on_no(self, scorer):
         scorer._client = MagicMock()
-        scorer._client.chat.return_value = _mock_response("NO")
+        scorer._client.chat.return_value = _mock_response("NO — context only mentions Sydney.")
         ctx = _ctx(context=["Some context."])
         scorer("expected", ctx)
         assert ctx.metadata_out.get("context_sufficiency_format_status") == "clean"
+        assert ctx.metadata_out.get("sufficiency_reasoning") == "NO — context only mentions Sydney."
 
     def test_format_status_repair_failed_on_parse_failure(self, scorer):
         scorer._client = MagicMock()
@@ -178,6 +180,7 @@ class TestContextSufficiencyScorer:
         ctx = _ctx(context=["Some context."])
         scorer("expected", ctx)
         assert ctx.metadata_out.get("context_sufficiency_format_status") == "repair_failed"
+        assert ctx.metadata_out.get("sufficiency_reasoning") == "I'm not sure."
 
     def test_yes_case_insensitive(self, scorer):
         scorer._client = MagicMock()

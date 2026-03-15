@@ -51,12 +51,15 @@ class ContextSufficiencyScorer(DatasetScorer):
         words = raw.strip().upper().split()
         first = words[0].rstrip(".,!?:;") if words else ""
         if first == "YES":
+            ctx.metadata_out["sufficiency_reasoning"] = raw.strip()
             ctx.metadata_out["context_sufficiency_format_status"] = "clean"
             return 1.0
         elif first == "NO":
+            ctx.metadata_out["sufficiency_reasoning"] = raw.strip()
             ctx.metadata_out["context_sufficiency_format_status"] = "clean"
             return 0.0
         else:
             logger.warning("context_sufficiency unexpected response: %r", raw)
+            ctx.metadata_out["sufficiency_reasoning"] = raw.strip()
             ctx.metadata_out["context_sufficiency_format_status"] = "repair_failed"
             return None
