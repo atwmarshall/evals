@@ -17,8 +17,10 @@ evals/
 │   ├── runner.py                  # Calls the model, populates RunResult
 │   ├── reporters.py               # Aggregates scores, prints tables, saves JSON
 │   ├── scorer_factory.py          # build_scorer() — maps CLI args to scorer instances
-│   ├── sensitivity_reporter.py    # run_variations(), SensitivityReporter
-│   ├── variation_generator.py     # VariationGenerator — LLM-based input rewriting
+│   ├── sensitivity_reporter.py    # SensitivityReporter — scorer reliability (variance metric)
+│   ├── robustness_reporter.py     # RobustnessReporter — model robustness (degradation metric)
+│   ├── variation_generator.py     # VariationGenerator — meaning-preserving rewrites for sensitivity
+│   ├── perturbation_generator.py  # PerturbationGenerator — adversarial rewrites for robustness
 │   └── scorers/
 │       ├── exact.py               # exact_match, normalised_match
 │       ├── regex.py               # RegexScorer, MultiRegexScorer
@@ -29,19 +31,22 @@ evals/
 ├── scripts/
 │   ├── run_eval.py                # CLI: run a single eval
 │   ├── benchmark.py               # CLI: multi-model comparison
-│   ├── sensitivity.py             # CLI: scorer sensitivity analysis
+│   ├── sensitivity.py             # CLI: scorer sensitivity analysis (Part A, Challenge 6)
+│   ├── robustness.py              # CLI: model robustness analysis (Part B, Challenge 6)
 │   └── show.py                    # CLI: inspect result artifacts
 ├── datasets/
 │   ├── challenge2/                # Structured extraction samples (JSONL)
 │   ├── challenge3/                # Open-ended QA samples (JSONL)
 │   ├── challenge7/                # RAG eval samples (JSONL)
 │   └── generated/
-│       └── sensitivity/           # Auto-created by sensitivity.py
+│       ├── sensitivity/           # Auto-created by sensitivity.py
+│       └── robustness/            # Auto-created by robustness.py
 ├── tests/
 ├── results/                       # Auto-created
 │   ├── runs/
 │   ├── benchmarks/
 │   ├── sensitivity/
+│   ├── robustness/
 │   └── judge_traces/
 ├── CLAUDE.md
 ├── pyproject.toml
@@ -114,17 +119,19 @@ Results saved to `results/benchmarks/{date}/{time}_{dataset}_{scorer}/`.
 
 ---
 
-### `sensitivity.py` — scorer sensitivity analysis
+### `sensitivity.py` — scorer sensitivity analysis (Part A)
 
 Holds the model fixed and varies input phrasing across 5 variation types. Measures score variance to test scorer reliability: **"can I trust my ruler?"**
+
+Run this before `robustness.py`. If scorer variance is ±0.1 and a robustness delta is 0.08, the robustness signal is within noise and uninterpretable.
 
 #### The pipeline
 
 ```
 load dataset
   → VariationGenerator.generate()      # 5 variation types via LLM
-  → validate_variations()              # LLM judge filters out meaning-changed samples
-  → run_variations()                   # Runner through eval scorer for each variation
+  → validate_variations()              # LLM judge filters meaning-changed samples
+  → Runner().run() per variation       # eval scorer on each variation
   → SensitivityReporter.report()       # variance tables + sensitivity.json
 ```
 
@@ -135,10 +142,10 @@ Sensitivity analysis uses three distinct models — this is intentional and enfo
 | Role | Env var | Description |
 |------|---------|-------------|
 | Evaluated model | `DEFAULT_MODEL` | The model whose completions are scored |
-| Judge | `JUDGE_MODEL` | Scores completions via `LLMJudgeScorer`; also used for variation validation |
+| Judge | `JUDGE_MODEL` | Scores completions via `LLMJudgeScorer`; also validates variations |
 | Variation generator | `VARIATION_MODEL` | Rewrites inputs via `VariationGenerator` |
 
-**`VARIATION_MODEL` must differ from `JUDGE_MODEL`.** Using the same model to generate and score variations measures self-consistency, not scorer reliability — the script will exit with an error if they match.
+**`VARIATION_MODEL` must differ from `JUDGE_MODEL`.** Using the same model to generate and score variations measures self-consistency, not scorer reliability — the script exits on misconfiguration.
 
 #### Variation types
 
@@ -152,17 +159,15 @@ Sensitivity analysis uses three distinct models — this is intentional and enfo
 
 #### Validation
 
-Before running the scorer, each variation is checked by the judge for meaning preservation. Variations that score below `--validation-threshold` (default `0.8`) are dropped. Filtering is per-sample: if a variation fails for one sample, only that sample is dropped for that variation type.
+Before running the scorer, each variation is checked by the judge for meaning preservation. Variations scoring below `--validation-threshold` (default `0.8`) are dropped per-sample — if a variation fails for one sample, only that sample is excluded for that variation type. Discarded samples are written to `discarded.jsonl` alongside the saved variations for audit.
 
 #### Reusing saved variations
 
-By default, variations are saved to `datasets/generated/sensitivity/` after generation and validation. To re-run analysis with a different scorer on the same inputs, skip generation entirely:
+Variations are saved to `datasets/generated/sensitivity/` after generation and validation. To re-run with a different scorer on the same inputs:
 
 ```bash
 --reuse-variations datasets/generated/sensitivity/2026-03-15_extraction_llama3.2:3b/
 ```
-
-This loads validated variations from disk, so variation generation and validation are skipped.
 
 #### Flags
 
@@ -184,7 +189,7 @@ This loads validated variations from disk, so variation generation and validatio
 
 #### Output
 
-Per-sample variance table and per-variation summary table are printed to stdout. Verdict is `unstable` if variance > 0.05, `ok` otherwise.
+Per-sample variance table and per-variation summary table printed to stdout. Verdict is `unstable` if variance > 0.05, `ok` otherwise. Summary line notes when the most-destabilising variation ran on fewer samples than baseline (e.g. due to validation discards).
 
 Results saved to `results/sensitivity/{date}/{time}_{dataset}_{scorer}/`.
 
@@ -210,9 +215,114 @@ uv run python scripts/sensitivity.py \
 
 ---
 
+### `robustness.py` — model robustness analysis (Part B)
+
+Holds the scorer fixed and applies adversarial perturbations to the input. Measures score degradation to test model robustness: **"how much does the model degrade under realistic input stress?"**
+
+Only run after `sensitivity.py` has established an acceptable scorer noise floor — if scorer variance is ±0.1, a degradation delta of 0.08 is within noise.
+
+#### The pipeline
+
+```
+load dataset
+  → PerturbationGenerator.generate()   # 5 adversarial perturbation types via LLM
+  → Runner().run() per perturbation    # eval scorer on each perturbation
+  → RobustnessReporter.report()        # degradation tables + robustness.json
+```
+
+#### Key difference from sensitivity
+
+Perturbations are designed to stress the model — some will intentionally degrade performance. There is no validation step: the degradation itself is the signal. A missing score is more honest than a fake one: if the perturbation LLM fails to generate a perturbation for a sample, that sample is excluded from that column rather than silently falling back to the original input.
+
+#### Perturbation types
+
+| Type | What it does |
+|------|-------------|
+| `typos` | Introduces 2–3 realistic typos |
+| `colloquial` | Rewrites in casual conversational language |
+| `verbose` | Adds redundant words and padding |
+| `indirect` | Rephrases as an indirect or implicit question |
+| `multilingual` | Translates key terms into another language |
+
+#### Verdicts
+
+| Verdict | Condition |
+|---------|-----------|
+| `robust` | degradation < 0.1 |
+| `fragile` | 0.1 ≤ degradation < 0.3 |
+| `brittle` | degradation ≥ 0.3 |
+| `n/a` | baseline score is `None`, or no valid perturbation scores |
+
+Degradation = `baseline_score − mean(perturbation_scores)` per sample. Positive = model scored lower under perturbation.
+
+#### Env var
+
+No three-model separation requirement. The perturbation model can equal the evaluated model — there is no circularity concern here. Env var resolution: `PERTURBATION_MODEL` → `DEFAULT_MODEL`.
+
+#### Reusing saved perturbations
+
+Perturbations are saved to `datasets/generated/robustness/` after generation. To re-run with a different scorer:
+
+```bash
+--reuse-perturbations datasets/generated/robustness/2026-03-15_extraction_llama3.2:3b/
+```
+
+#### Flags
+
+| Flag | Default | Notes |
+|------|---------|-------|
+| `--dataset` | required | Path to JSONL dataset |
+| `--scorer` | required | Scorer held fixed during robustness test |
+| `--model` | `DEFAULT_MODEL` | Model being evaluated |
+| `--limit` | none | Max samples |
+| `--perturbations` | all 5 | Space-separated list of perturbation types to run |
+| `--no-save-perturbations` | off | Skip saving generated perturbations |
+| `--reuse-perturbations DIR` | none | Load perturbations from a saved directory |
+| `--output` | `RESULTS_DIR` | Override output directory |
+| `--judge-model` | `JUDGE_MODEL` | Override judge model (for judge/cascade scorer) |
+| `--scale` | `5` | Judge score scale |
+| `--fast-tier` | `normalised` | Fast tier for cascade scorer |
+| `--cascade-threshold` | `1.0` | Fast-tier threshold |
+
+#### Output
+
+Per-sample degradation table and per-perturbation summary printed to stdout. Summary line notes when the most-degrading perturbation ran on fewer samples than baseline.
+
+Results saved to `results/robustness/{date}/{time}_{dataset}_{model}/` — keyed by model (not scorer), because robustness measures how the model responds to adversarial inputs.
+
+#### Examples
+
+```bash
+# Full run
+uv run python scripts/robustness.py \
+  --dataset datasets/challenge2/extraction.jsonl \
+  --scorer judge --limit 10
+
+# Specific perturbation types only
+uv run python scripts/robustness.py \
+  --dataset datasets/challenge2/extraction.jsonl \
+  --scorer exact --perturbations typos indirect
+
+# Reuse saved perturbations
+uv run python scripts/robustness.py \
+  --dataset datasets/challenge2/extraction.jsonl \
+  --scorer cascade \
+  --reuse-perturbations datasets/generated/robustness/2026-03-15_extraction_llama3.2:3b/
+```
+
+#### What to watch for
+
+- `indirect` and `typos` typically cause the most degradation
+- `verbose` can sometimes *improve* scores on judge-evaluated tasks due to verbosity bias — this is worth noting if it happens, as it reveals a scorer blind spot rather than genuine robustness
+- Degradation that exceeds scorer variance (established by `sensitivity.py`) is real signal; degradation within that noise floor is uninterpretable
+
+---
+
 ### `show.py` — inspect result artifacts
 
 Auto-detects the path type in this order: sensitivity dir → benchmark dir → run dir → JSONL → traces dir.
+
+> **Known gap**: robustness result directories (`robustness.json` present) are not yet auto-detected. Per-perturbation JSONL files inside the directory are readable by the `.jsonl` handler, but the summary and degradation table are not shown. See `docs/backlog/show-robustness-support.md`.
 
 ```bash
 # Inspect a run
@@ -233,7 +343,7 @@ uv run python scripts/show.py results/runs/<date>/<run_dir>/ --id sample-001
 # Show full completions
 uv run python scripts/show.py results/runs/<date>/<run_dir>/ --verbose
 
-# Inspect a raw JSONL file
+# Inspect a raw JSONL file (works for any JSONL, including per-perturbation files)
 uv run python scripts/show.py datasets/challenge2/extraction.jsonl
 
 # Inspect judge traces
@@ -290,14 +400,22 @@ results/
 ├── benchmarks/{date}/{time}_{dataset}_{scorer}/
 │   ├── benchmark.json
 │   └── {model}.jsonl
-├── sensitivity/{date}/{time}_{dataset}_{scorer}/
+├── sensitivity/{date}/{time}_{dataset}_{scorer}/      ← keyed by scorer
 │   ├── sensitivity.json
 │   ├── baseline.jsonl
 │   ├── rephrase.jsonl
+│   ├── discarded.jsonl                                ← samples filtered by validation
+│   └── ...
+├── robustness/{date}/{time}_{dataset}_{model}/        ← keyed by model
+│   ├── robustness.json
+│   ├── baseline.jsonl
+│   ├── typos.jsonl
 │   └── ...
 └── judge_traces/{date}/{time}_{model}/
     └── {sample_id}.json
 ```
+
+Sensitivity results are keyed by scorer (what's under test is the scorer's reliability). Robustness results are keyed by model (what's under test is the model's resilience to adversarial inputs).
 
 ### `sensitivity.json` fields
 
@@ -313,7 +431,23 @@ results/
 | `schema_notes` | Internal schema versioning notes |
 | `per_sample` | List of per-sample rows: `id`, one score per variation, `variance`, `verdict` |
 | `per_variation` | List of per-variation rows: `variation`, `mean_score`, `delta_from_baseline`, `mean_variance` |
-| `summary` | Top-level summary: `n_unstable`, `n_total`, `most_destabilising` |
+| `summary` | `n_unstable`, `n_total`, `most_destabilising`, `most_destabilising_n`, `baseline_n` |
+
+### `robustness.json` fields
+
+| Field | Contents |
+|-------|---------|
+| `dataset` | Source dataset name |
+| `scorer` | Scorer held fixed during the test |
+| `model` | Evaluated model |
+| `timestamp` | ISO timestamp |
+| `materialised_at` | When the file was written |
+| `run_config` | `perturbation_model`, `cascade_threshold`, `limit`, `reused_from` |
+| `perturbation_names` | List of perturbation types that were run (including `"baseline"`) |
+| `schema_notes` | Notes on metric definitions (degradation vs delta) |
+| `per_sample` | List of per-sample rows: `id`, one score per perturbation, `degradation`, `verdict` |
+| `per_perturbation` | List of per-perturbation rows: `perturbation`, `mean_score`, `delta_from_baseline` |
+| `summary` | `n_robust`, `n_fragile`, `n_brittle`, `n_na`, `n_total`, `most_degrading`, `most_degrading_n`, `baseline_n` |
 
 ---
 
@@ -377,8 +511,9 @@ For RAG datasets, samples include an additional `context` field:
 | `DEFAULT_MODEL` | `EvalConfig` | `llama3.2:3b` | Model being evaluated |
 | `JUDGE_MODEL` | `LLMJudgeScorer`, `CascadeScorer` | `llama3.2:3b` | Scores completions |
 | `VARIATION_MODEL` | `VariationGenerator` | falls back to `DEFAULT_MODEL` | Must differ from `JUDGE_MODEL` in sensitivity analysis |
+| `PERTURBATION_MODEL` | `PerturbationGenerator` | falls back to `DEFAULT_MODEL` | Can equal evaluated model — no circularity concern |
 | `MAX_TOKENS` | `EvalConfig` | `1024` | |
-| `RESULTS_DIR` | `Reporter`, `SensitivityReporter` | `results/` | |
+| `RESULTS_DIR` | `Reporter`, `SensitivityReporter`, `RobustnessReporter` | `results/` | |
 
 ---
 
@@ -397,3 +532,7 @@ For RAG datasets, samples include an additional `context` field:
 6. **`None` ≠ `0.0`.** A scorer returning `None` means it couldn't score the sample (API down, unparseable response). It's recorded separately from a genuine low score and excluded from mean calculation.
 
 7. **Three-model separation matters in sensitivity analysis.** If `VARIATION_MODEL` equals `JUDGE_MODEL`, you're measuring self-consistency, not scorer reliability. The script enforces separation and exits on misconfiguration.
+
+8. **Robustness and sensitivity measure different things.** Sensitivity holds the input fixed and varies the scorer's perspective; robustness holds the scorer fixed and varies the input adversarially. Sensitivity answers "can I trust my ruler?"; robustness answers "how fragile is the model to realistic input noise?". Run sensitivity first — if your scorer is noisy, robustness deltas are uninterpretable.
+
+9. **`verbose` perturbation can improve scores.** If verbose inputs score *higher* than baseline under an LLM judge, that is verbosity bias in the judge, not genuine robustness. It is a scorer blind spot, not a good result.

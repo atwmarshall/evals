@@ -115,7 +115,9 @@ def inspect_sensitivity(
             [
                 name,
                 f"{row[name]:.3f}" if row.get(name) is not None else "—",
-                row.get("verdict", "—") if name != "baseline" else "anchor",
+                "anchor" if name == "baseline"
+                else "discarded" if row.get(name) is None
+                else row.get("verdict", "—"),
             ]
             for name in variation_names
         ]
