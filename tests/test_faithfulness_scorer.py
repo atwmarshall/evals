@@ -1,0 +1,132 @@
+from __future__ import annotations
+
+from unittest.mock import MagicMock, patch
+
+import pytest
+
+from evals.core import ScorerContext
+from evals.scorers.faithfulness import ContextSufficiencyScorer, FaithfulnessScorer
+
+
+def _ctx(context=None, input_text="What is the capital of Australia?", metadata=None):
+    meta = dict(metadata or {})
+    if context is not None:
+        meta["context"] = context
+    return ScorerContext(input=input_text, metadata=meta)
+
+
+def _mock_response(content: str):
+    msg = MagicMock()
+    msg.content = content
+    resp = MagicMock()
+    resp.message = msg
+    return resp
+
+
+class TestFaithfulnessScorer:
+    @pytest.fixture
+    def scorer(self):
+        return FaithfulnessScorer(scale=5)
+
+    def test_returns_none_when_no_context_in_metadata(self, scorer):
+        ctx = _ctx()  # no context key
+        result = scorer("Sydney is the capital.", "Canberra", ctx)
+        assert result is None
+
+    def test_returns_none_when_context_is_empty_list(self, scorer):
+        ctx = _ctx(context=[])
+        result = scorer("Sydney is the capital.", "Canberra", ctx)
+        assert result is None
+
+    def test_api_error_returns_none(self, scorer):
+        ctx = _ctx(context=["Australia has many cities."])
+        scorer._client = MagicMock()
+        scorer._client.chat.side_effect = RuntimeError("connection refused")
+        result = scorer("Sydney.", "Canberra", ctx)
+        assert result is None
+
+    def test_score_normalised_correctly(self, scorer):
+        ctx = _ctx(context=["The capital of Australia is Canberra."])
+        scorer._client = MagicMock()
+
+        scorer._client.chat.return_value = _mock_response('{"score": 5, "reasoning": "fully supported"}')
+        assert scorer("Canberra.", "Canberra", ctx) == pytest.approx(1.0)
+
+        scorer._client.chat.return_value = _mock_response('{"score": 1, "reasoning": "no support"}')
+        assert scorer("Sydney.", "Canberra", ctx) == pytest.approx(0.0)
+
+        scorer._client.chat.return_value = _mock_response('{"score": 3, "reasoning": "partial"}')
+        assert scorer("Maybe Canberra.", "Canberra", ctx) == pytest.approx(0.5)
+
+    def test_context_joined_as_newline_in_prompt(self, scorer):
+        chunks = ["Chunk one.", "Chunk two."]
+        ctx = _ctx(context=chunks)
+        scorer._client = MagicMock()
+        scorer._client.chat.return_value = _mock_response('{"score": 4, "reasoning": "ok"}')
+        scorer("Some answer.", "expected", ctx)
+
+        call_args = scorer._client.chat.call_args
+        prompt = call_args[1]["messages"][0]["content"]
+        assert "Chunk one.\nChunk two." in prompt
+
+    def test_expected_is_ignored(self, scorer):
+        ctx1 = _ctx(context=["The sky is blue."])
+        ctx2 = _ctx(context=["The sky is blue."])
+        scorer._client = MagicMock()
+        scorer._client.chat.return_value = _mock_response('{"score": 5, "reasoning": "ok"}')
+
+        scorer("The sky is blue.", "expected A", ctx1)
+        call1 = scorer._client.chat.call_args[1]["messages"][0]["content"]
+
+        scorer("The sky is blue.", "expected B", ctx2)
+        call2 = scorer._client.chat.call_args[1]["messages"][0]["content"]
+
+        assert call1 == call2
+
+    def test_format_status_written_to_metadata_out(self, scorer):
+        ctx = _ctx(context=["Some context."])
+        scorer._client = MagicMock()
+        scorer._client.chat.return_value = _mock_response('{"score": 4, "reasoning": "ok"}')
+        scorer("answer", "expected", ctx)
+        assert ctx.metadata_out.get("faithfulness_format_status") == "clean"
+
+    def test_parse_failure_returns_none(self, scorer):
+        ctx = _ctx(context=["Some context."])
+        scorer._client = MagicMock()
+        scorer._client.chat.return_value = _mock_response("I think it's a 4 out of 5.")
+        result = scorer("answer", "expected", ctx)
+        assert result is None
+
+
+class TestContextSufficiencyScorer:
+    @pytest.fixture
+    def scorer(self):
+        return ContextSufficiencyScorer()
+
+    def test_returns_1_when_expected_in_context(self, scorer):
+        ctx = _ctx(context=["France's capital is Paris."])
+        assert scorer("Paris", "Paris", ctx) == 1.0
+
+    def test_returns_0_when_expected_not_in_context(self, scorer):
+        # rag-006 case: Canberra not in context
+        ctx = _ctx(context=["Sydney is the largest city.", "Melbourne is well-known."])
+        assert scorer("I don't know", "Canberra", ctx) == 0.0
+
+    def test_case_insensitive_match(self, scorer):
+        ctx = _ctx(context=["The capital city is Paris."])
+        assert scorer("paris", "paris", ctx) == 1.0
+
+    def test_returns_none_when_no_context(self, scorer):
+        ctx = _ctx()  # no context key
+        assert scorer("answer", "expected", ctx) is None
+
+    def test_ignores_completion(self, scorer):
+        ctx1 = _ctx(context=["The answer is 42."])
+        ctx2 = _ctx(context=["The answer is 42."])
+        result1 = scorer("completion A", "42", ctx1)
+        result2 = scorer("completely different completion", "42", ctx2)
+        assert result1 == result2
+
+    def test_context_as_string_not_list(self, scorer):
+        ctx = _ctx(context="France's capital is Paris.")
+        assert scorer("Paris", "Paris", ctx) == 1.0

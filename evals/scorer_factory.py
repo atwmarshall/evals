@@ -12,7 +12,7 @@ from evals.scorers.llm_judge import LLMJudgeScorer
 from evals.scorers.regex import MultiRegexScorer, RegexScorer
 from evals.scorers.schema import JSONSchemaScorer
 
-SCORER_CHOICES = "exact, normalised, regex, multi-regex, schema, judge, cascade"
+SCORER_CHOICES = "exact, normalised, regex, multi-regex, schema, judge, cascade, faithfulness, context-sufficiency"
 
 _EXTRACTION_SCHEMA: dict = {
     "type": "object",
@@ -75,5 +75,14 @@ def build_scorer(
             if threshold is None:
                 threshold = getattr(args, "threshold", 1.0)
             return CascadeScorer(fast=fast, judge=judge, threshold=threshold)
+        case "faithfulness":
+            from evals.scorers.faithfulness import FaithfulnessScorer
+            return FaithfulnessScorer(
+                scale=args.scale,
+                **({"model": args.judge_model} if args.judge_model else {}),
+            )
+        case "context-sufficiency":
+            from evals.scorers.faithfulness import ContextSufficiencyScorer
+            return ContextSufficiencyScorer()
         case _:
             sys.exit(f"Unknown scorer: {args.scorer!r}. Choose from: {SCORER_CHOICES}")

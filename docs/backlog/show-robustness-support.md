@@ -45,3 +45,32 @@ Robustness should be inserted at position 1 (before or alongside sensitivity):
 - The `--failures-only` flag for robustness should filter on `verdict in {"fragile", "brittle"}`, not just `"unstable"`
 - `run_config` stored in `robustness.json` does not include `validation_threshold` or `judge_model` — the display should not expect those keys
 - `most_degrading_n` and `baseline_n` in `summary` should be surfaced when they differ (same n-note logic as the live report)
+
+
+Known gap: show.py has no inspect_robustness() clause for robustness.json detection. Per-perturbation JSONL files 
+  are still readable by show.py's existing .jsonl handler, but the top-level robustness.json has no dedicated view.
+
+17:34
+Correct — and worth being precise about what you can and can't see without it:
+
+What works today with the existing .jsonl handler:
+
+bash
+show.py results/robustness/.../typos.jsonl
+show.py results/robustness/.../typos.jsonl --id c2-001
+show.py results/robustness/.../typos.jsonl -f
+Per-perturbation results, individual sample inspection, failures filter — all work. You can see what the model produced under each perturbation type.
+
+What you can't see without inspect_robustness():
+
+The degradation column — that's computed in robustness.json, not in the per-perturbation JSONLs
+The robust / fragile / brittle verdicts per sample
+The per-perturbation summary table with delta_from_baseline
+The overall n_robust / n_fragile / n_brittle counts
+Which perturbation was most degrading
+So the gap is specifically the aggregated cross-perturbation view — the thing that makes robustness results interpretable. Without it you have raw per-perturbation scores but no degradation signal. You'd have to manually compare typos.jsonl mean score against baseline.jsonl mean score yourself.
+
+Practically for this weekend: you can still run robustness.py and get meaningful results by reading robustness.json directly with cat results/robustness/.../robustness.json | python -m json.tool. Ugly but functional.
+
+Add to backlog with priority — it's a 40-line addition to show.py following the exact same pattern as inspect_sensitivity(), and without it robustness results are significantly harder to read than sensitivity results. That asymmetry will bother you every time you use the tool.
+
