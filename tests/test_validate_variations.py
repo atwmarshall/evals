@@ -23,50 +23,50 @@ def _gen() -> VariationGenerator:
 class TestValidateVariations:
     def test_baseline_passes_through_unchanged(self):
         ds = _make_dataset("a", "b")
-        result = _gen().validate_variations({"baseline": ds}, scorer=MagicMock(return_value=1.0))
+        result = _gen().validate_variations({"baseline": ds}, validation_scorer=MagicMock(return_value=1.0))
         assert result["baseline"] is ds
 
     def test_samples_above_threshold_are_kept(self):
         ds = _make_dataset("a", "b")
         scorer = MagicMock(return_value=1.0)
-        result = _gen().validate_variations({"rephrase": ds}, scorer=scorer, threshold=0.8)
+        result = _gen().validate_variations({"rephrase": ds}, validation_scorer=scorer, threshold=0.8)
         assert [s.id for s in result["rephrase"].samples] == ["a", "b"]
 
     def test_samples_below_threshold_are_discarded(self):
         ds = _make_dataset("a", "b")
         scorer = MagicMock(side_effect=[1.0, 0.5])
-        result = _gen().validate_variations({"rephrase": ds}, scorer=scorer, threshold=0.8)
+        result = _gen().validate_variations({"rephrase": ds}, validation_scorer=scorer, threshold=0.8)
         assert [s.id for s in result["rephrase"].samples] == ["a"]
 
     def test_sample_at_threshold_is_kept(self):
         ds = _make_dataset("a")
         scorer = MagicMock(return_value=0.8)
-        result = _gen().validate_variations({"rephrase": ds}, scorer=scorer, threshold=0.8)
+        result = _gen().validate_variations({"rephrase": ds}, validation_scorer=scorer, threshold=0.8)
         assert len(result["rephrase"].samples) == 1
 
     def test_none_score_discards_sample(self):
         ds = _make_dataset("a")
         scorer = MagicMock(return_value=None)
-        result = _gen().validate_variations({"rephrase": ds}, scorer=scorer)
+        result = _gen().validate_variations({"rephrase": ds}, validation_scorer=scorer)
         assert len(result["rephrase"].samples) == 0
 
     def test_scorer_exception_discards_sample(self):
         ds = _make_dataset("a", "b")
         scorer = MagicMock(side_effect=[RuntimeError("api down"), 1.0])
-        result = _gen().validate_variations({"rephrase": ds}, scorer=scorer)
+        result = _gen().validate_variations({"rephrase": ds}, validation_scorer=scorer)
         assert [s.id for s in result["rephrase"].samples] == ["b"]
 
     def test_empty_variation_key_still_present(self):
         ds = _make_dataset("a", "b")
         scorer = MagicMock(return_value=0.0)
-        result = _gen().validate_variations({"rephrase": ds}, scorer=scorer)
+        result = _gen().validate_variations({"rephrase": ds}, validation_scorer=scorer)
         assert "rephrase" in result
         assert len(result["rephrase"].samples) == 0
 
     def test_scorer_called_with_expected_as_completion(self):
         ds = _make_dataset("a")
         scorer = MagicMock(return_value=1.0)
-        _gen().validate_variations({"rephrase": ds}, scorer=scorer)
+        _gen().validate_variations({"rephrase": ds}, validation_scorer=scorer)
         call_args = scorer.call_args
         completion, expected, ctx = call_args.args
         assert completion == "expected a"
@@ -76,7 +76,7 @@ class TestValidateVariations:
     def test_ctx_includes_sample_id(self):
         ds = _make_dataset("x")
         scorer = MagicMock(return_value=1.0)
-        _gen().validate_variations({"rephrase": ds}, scorer=scorer)
+        _gen().validate_variations({"rephrase": ds}, validation_scorer=scorer)
         _, _, ctx = scorer.call_args.args
         assert ctx.metadata["id"] == "x"
 
@@ -96,6 +96,6 @@ class TestValidateVariations:
             return rephrase_scorer(completion, expected, ctx)
 
         variations = {"synonym_swap": ds, "rephrase": ds}
-        result = _gen().validate_variations(variations, scorer=scorer)
+        result = _gen().validate_variations(variations, validation_scorer=scorer)
         assert len(result["synonym_swap"].samples) == 2
         assert len(result["rephrase"].samples) == 1

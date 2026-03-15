@@ -78,7 +78,7 @@ class ScorerContext:
     metadata_out: dict = field(default_factory=dict)
 
 
-ScorerCallable = Callable[["str", "str", "ScorerContext"], float | None]
+ScorerCallable = Callable[[str, str, ScorerContext], float | None]
 
 
 @dataclass

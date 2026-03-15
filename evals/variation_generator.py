@@ -94,19 +94,20 @@ class VariationGenerator:
     def validate_variations(
         self,
         variations: dict[str, Dataset],
-        scorer: ScorerCallable,
+        validation_scorer: ScorerCallable,
         threshold: float = 0.8,
     ) -> dict[str, Dataset]:
         """Return a filtered copy of `variations` where per-sample validity is confirmed.
 
         For each variation type (excluding "baseline"), scores the original expected
-        answer against the varied input using the provided scorer. Any (sample, variation)
+        answer against the varied input using `validation_scorer`. Any (sample, variation)
         pair where the scorer returns None or a score below `threshold` is discarded.
 
-        Note: with pure scorers (exact_match, normalised_match, regex) this is a no-op —
-        they do not read ctx.input, so the expected answer always scores 1.0 against itself.
-        This step is only meaningfully discriminating with context-aware scorers
-        (LLMJudgeScorer, CascadeScorer).
+        `validation_scorer` should always be a context-aware scorer (LLMJudgeScorer or
+        CascadeScorer). Pure scorers (exact_match, regex, schema) compare completion
+        against expected directly and ignore ctx.input — since both are the ground-truth
+        expected value here, they always return 1.0 and provide no signal. Use the judge
+        for validation regardless of which scorer you're running sensitivity analysis with.
 
         The "baseline" key is passed through unchanged without scoring.
         Empty variation Datasets (all samples filtered) are kept as keys with samples=[]
@@ -128,7 +129,7 @@ class VariationGenerator:
                     metadata_out={},
                 )
                 try:
-                    score = scorer(varied_sample.expected, varied_sample.expected, ctx)
+                    score = validation_scorer(varied_sample.expected, varied_sample.expected, ctx)
                 except Exception as exc:
                     logger.warning(
                         "validate_variations: scorer raised for sample %s variation %r: %s — discarding",
