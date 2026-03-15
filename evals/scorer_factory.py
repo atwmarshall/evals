@@ -69,6 +69,11 @@ def build_scorer(
                 evaluated_model=evaluated_model,
                 **({"model": args.judge_model} if args.judge_model else {}),
             )
-            return CascadeScorer(fast=fast, judge=judge, threshold=args.threshold)
+            # sensitivity.py uses --cascade-threshold to avoid confusion with
+            # --validation-threshold; other CLIs use --threshold. Support both.
+            threshold = getattr(args, "cascade_threshold", None)
+            if threshold is None:
+                threshold = getattr(args, "threshold", 1.0)
+            return CascadeScorer(fast=fast, judge=judge, threshold=threshold)
         case _:
             sys.exit(f"Unknown scorer: {args.scorer!r}. Choose from: {SCORER_CHOICES}")

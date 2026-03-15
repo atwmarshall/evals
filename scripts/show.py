@@ -71,6 +71,112 @@ def _find_trace(results_dir: Path, date: str, model_id: str, sample_id: str) -> 
 
 
 # ---------------------------------------------------------------------------
+# sensitivity mode
+# ---------------------------------------------------------------------------
+
+def inspect_sensitivity(
+    sens_dir: Path,
+    verbose: bool,
+    sample_id: str | None = None,
+    failures_only: bool = False,
+) -> None:
+    """Display sensitivity analysis results from a sensitivity.json directory.
+
+    --verbose is accepted but ignored — completions are not stored in sensitivity.json.
+    --failures-only filters the per-sample table to verdict=unstable rows only.
+    """
+    meta = json.loads((sens_dir / "sensitivity.json").read_text())
+    run_cfg = meta.get("run_config") or {}
+
+    print(
+        f"SENSITIVITY  dataset={meta['dataset']}  scorer={meta['scorer']}  "
+        f"model={meta['model']}  {meta['timestamp']}"
+    )
+    if run_cfg.get("variation_model"):
+        print(
+            f"             variation_model={run_cfg['variation_model']}  "
+            f"judge={run_cfg.get('judge_model', '?')}  "
+            f"validation_threshold={run_cfg.get('validation_threshold', '?')}"
+        )
+    print(f"dir: {sens_dir}\n")
+
+    variation_names = meta.get("variation_names", [])
+    per_sample = meta.get("per_sample", [])
+
+    # --id: show one sample's scores across all variations
+    if sample_id:
+        matches = [r for r in per_sample if r.get("id") == sample_id]
+        if not matches:
+            print(f"Sample {sample_id!r} not found in sensitivity results.")
+            sys.exit(1)
+        row = matches[0]
+        print(f"── sample {sample_id} ──\n")
+        table_rows = [
+            [
+                name,
+                f"{row[name]:.3f}" if row.get(name) is not None else "—",
+                row.get("verdict", "—") if name != "baseline" else "anchor",
+            ]
+            for name in variation_names
+        ]
+        print(tabulate(table_rows, headers=["variation", "score", "note"], tablefmt="simple"))
+        v = row.get("variance")
+        print(f"\nvariance: {v:.4f}" if v is not None else "\nvariance: —")
+        print(f"verdict:  {row.get('verdict', '—')}")
+        return
+
+    # Per-sample variance table
+    if failures_only:
+        display_rows = [r for r in per_sample if r.get("verdict") == "unstable"]
+        label = f"  (unstable only: {len(display_rows)}/{len(per_sample)})"
+    else:
+        display_rows = per_sample
+        label = f"  ({len(per_sample)} samples)"
+
+    ps_headers = ["id"] + variation_names + ["variance", "verdict"]
+    ps_rows = []
+    for row in display_rows:
+        ps_row = [row["id"]]
+        for name in variation_names:
+            score = row.get(name)
+            ps_row.append(f"{score:.2f}" if score is not None else "—")
+        v = row.get("variance")
+        ps_row.append(f"{v:.4f}" if v is not None else "—")
+        ps_row.append(row.get("verdict", "—"))
+        ps_rows.append(ps_row)
+
+    print(f"── PER-SAMPLE VARIANCE{label} ──")
+    print(tabulate(ps_rows, headers=ps_headers, tablefmt="simple"))
+
+    # Per-variation summary (always shown regardless of --failures-only)
+    per_variation = meta.get("per_variation", [])
+    pv_headers = ["variation", "mean_score", "delta_from_baseline", "mean_variance"]
+    pv_rows = []
+    for row in per_variation:
+        ms = row.get("mean_score")
+        delta = row.get("delta_from_baseline")
+        mv = row.get("mean_variance")
+        pv_rows.append([
+            row["variation"],
+            f"{ms:.3f}" if ms is not None else "—",
+            f"{delta:+.3f}" if delta is not None else "—",
+            f"{mv:.4f}" if mv is not None else "—",
+        ])
+
+    print(f"\n── PER-VARIATION SUMMARY ──")
+    print(tabulate(pv_rows, headers=pv_headers, tablefmt="simple"))
+
+    summary = meta.get("summary", {})
+    n_unstable = summary.get("n_unstable", 0)
+    n_total = summary.get("n_total", 0)
+    most_dest = summary.get("most_destabilising")
+    summary_line = f"\n{n_unstable} unstable / {n_total} samples"
+    if most_dest:
+        summary_line += f"  (most destabilising: {most_dest})"
+    print(summary_line)
+
+
+# ---------------------------------------------------------------------------
 # benchmark mode
 # ---------------------------------------------------------------------------
 
@@ -479,6 +585,8 @@ def main() -> None:
 
     if path.is_file() and path.suffix == ".jsonl":
         inspect_jsonl(path, args.id, args.verbose, failures_only=args.failures_only, strict=args.strict)
+    elif path.is_dir() and (path / "sensitivity.json").exists():
+        inspect_sensitivity(path, args.verbose, sample_id=args.id, failures_only=args.failures_only)
     elif path.is_dir() and (path / "benchmark.json").exists():
         inspect_benchmark(path, args.verbose, sample_id=args.id, failures_only=args.failures_only, strict=args.strict)
     elif path.is_dir() and (path / "run.json").exists():

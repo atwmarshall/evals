@@ -173,7 +173,7 @@ class VariationGenerator:
         original: dict[str, Dataset],
         source_path: str | Path,
         threshold: float,
-        output_dir: Path | None = None,
+        output_dir: Path | str | None = None,
     ) -> Path:
         """Save validated variation datasets to datasets/generated/sensitivity/.
 
@@ -199,6 +199,8 @@ class VariationGenerator:
             source_stem = Path(source_path).stem
             model_slug = re.sub(r"[:/]", "_", self.model)
             output_dir = Path("datasets") / "generated" / "sensitivity" / f"{date}_{source_stem}_{model_slug}"
+        else:
+            output_dir = Path(output_dir)
 
         output_dir.mkdir(parents=True, exist_ok=True)
 
