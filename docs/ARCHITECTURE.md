@@ -15,9 +15,14 @@ Dataset.from_jsonl()
     ▼
 Runner.run(dataset, scorer, config)
     │  for each sample:
-    │    completion = call_model(sample.input)
     │    ctx = ScorerContext(input=sample.input, metadata=sample.metadata)
-    │    score = scorer(completion, sample.expected, ctx)  # float | None
+    │    if isinstance(scorer, DatasetScorer):        ← dataset quality check
+    │      completion = ""  (no model call)
+    │      latency_ms = 0
+    │      score = scorer(sample.expected, ctx)       ← 2-arg signature
+    │    else:                                        ← model scorer
+    │      completion = call_model(sample.input)
+    │      score = scorer(completion, sample.expected, ctx)  # float | None
     │    yield RunResult(sample, completion, score, latency_ms, error)
     ▼
 Reporter.report(results)
@@ -30,31 +35,38 @@ results/ directory
 
 ---
 
-## The scorer contract
+## The scorer contracts
 
-A scorer is any callable that satisfies:
+There are two distinct scorer contracts. The type system in `core.py` encodes both:
+
+```python
+ScorerCallable      = Callable[[str, str, ScorerContext], float | None]  # model scorer
+DatasetScorerCallable = Callable[[str, ScorerContext], float | None]     # dataset scorer
+AnyScorer           = Union[ScorerCallable, DatasetScorerCallable]
+```
+
+**Model scorer** — evaluates model output:
 
 ```python
 def scorer(completion: str, expected: str, ctx: ScorerContext) -> float | None:
     ...  # return 0.0 to 1.0, or None on parse/API failure
 ```
 
-`ScorerContext` carries `input` (the original question) and `metadata` from the current `Sample`. Pure scorers accept it and ignore it. Context-aware scorers (LLMJudge) use `ctx.input` as the question when prompting the judge.
+`ScorerContext` carries `input` (the original question) and `metadata` from the current `Sample`. Pure scorers accept it and ignore it. Context-aware scorers (LLMJudge, FaithfulnessScorer) use `ctx.input` as the question when prompting the judge.
 
-Return `None` to signal a parse or API failure — the Runner records this as an error, not a score of 0.0. This preserves the distinction between "model gave a wrong answer" and "scorer couldn't evaluate the answer".
+Return `None` to signal a parse or API failure — the Runner records this as an error, not a score of 0.0.
 
-Class-based scorers (LLMJudgeScorer, CascadeScorer) hold state but their `__call__` still satisfies the contract.
-
-This means you can compose scorers:
+**Dataset scorer** — evaluates dataset quality. Inherits from `DatasetScorer` (marker class). `completion` is structurally absent — it is not ignored, it does not appear in the signature:
 
 ```python
-def average_scorer(completion, expected, ctx):
-    s1 = exact_match(completion, expected, ctx)
-    s2 = schema_scorer(completion, expected, ctx)
-    if s1 is None or s2 is None:
-        return None
-    return (s1 + s2) / 2
+class MyDatasetScorer(DatasetScorer):
+    def __call__(self, expected: str, ctx: ScorerContext) -> float | None:
+        ...  # evaluate dataset quality from expected + ctx.metadata
 ```
+
+Runner detects `isinstance(scorer, DatasetScorer)` and skips the model call. `RunResult.completion` is `""` and `latency_ms` is `0`. Run dataset scorers before model evals to validate dataset construction.
+
+Class-based scorers (LLMJudgeScorer, CascadeScorer, FaithfulnessScorer, ContextSufficiencyScorer) hold state but their `__call__` satisfies one of the two contracts above.
 
 ---
 
