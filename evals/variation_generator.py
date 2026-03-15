@@ -100,8 +100,9 @@ class VariationGenerator:
         variations: dict[str, Dataset],
         validation_scorer: ScorerCallable,
         threshold: float = 0.8,
-    ) -> dict[str, Dataset]:
-        """Return a filtered copy of `variations` where per-sample validity is confirmed.
+    ) -> tuple[dict[str, Dataset], list[dict]]:
+        """Return a filtered copy of `variations` where per-sample validity is confirmed,
+        plus a list of discarded entries for audit.
 
         For each variation type (excluding "baseline"), scores the original expected
         answer against the varied input using `validation_scorer`. Any (sample, variation)
@@ -116,8 +117,13 @@ class VariationGenerator:
         The "baseline" key is passed through unchanged without scoring.
         Empty variation Datasets (all samples filtered) are kept as keys with samples=[]
         so downstream reporters see them rather than silently missing them.
+
+        Returns:
+            (validated, discards) where discards is a list of dicts with keys:
+            id, variation, varied_input, expected, validity_score (float | None).
         """
         validated: dict[str, Dataset] = {}
+        discards: list[dict] = []
 
         for variation_name, dataset in variations.items():
             if variation_name == "baseline":
@@ -139,6 +145,14 @@ class VariationGenerator:
                         "validate_variations: scorer raised for sample %s variation %r: %s — discarding",
                         varied_sample.id, variation_name, exc,
                     )
+                    discards.append({
+                        "id": varied_sample.id,
+                        "variation": variation_name,
+                        "varied_input": varied_sample.input,
+                        "expected": varied_sample.expected,
+                        "validity_score": None,
+                        "reason": "scorer_exception",
+                    })
                     continue
 
                 if score is None:
@@ -146,6 +160,14 @@ class VariationGenerator:
                         "validate_variations: discarded sample %s from variation %r — scorer_returned_none (threshold=%.3f)",
                         varied_sample.id, variation_name, threshold,
                     )
+                    discards.append({
+                        "id": varied_sample.id,
+                        "variation": variation_name,
+                        "varied_input": varied_sample.input,
+                        "expected": varied_sample.expected,
+                        "validity_score": None,
+                        "reason": "scorer_returned_none",
+                    })
                     continue
 
                 if score < threshold:
@@ -153,6 +175,14 @@ class VariationGenerator:
                         "validate_variations: discarded sample %s from variation %r — score_below_threshold (score=%.3f, threshold=%.3f)",
                         varied_sample.id, variation_name, score, threshold,
                     )
+                    discards.append({
+                        "id": varied_sample.id,
+                        "variation": variation_name,
+                        "varied_input": varied_sample.input,
+                        "expected": varied_sample.expected,
+                        "validity_score": score,
+                        "reason": "score_below_threshold",
+                    })
                     continue
 
                 valid_samples.append(varied_sample)
@@ -165,7 +195,7 @@ class VariationGenerator:
 
             validated[variation_name] = Dataset(samples=valid_samples)
 
-        return validated
+        return validated, discards
 
     def save_variations(
         self,
@@ -173,6 +203,7 @@ class VariationGenerator:
         original: dict[str, Dataset],
         source_path: str | Path,
         threshold: float,
+        discards: list[dict] | None = None,
         output_dir: Path | str | None = None,
     ) -> Path:
         """Save validated variation datasets to datasets/generated/sensitivity/.
@@ -188,6 +219,8 @@ class VariationGenerator:
                       compute discard counts by comparing lengths).
             source_path: Path to the source JSONL that was passed to generate().
             threshold: The validation threshold that was used.
+            discards: Optional list of discard records from validate_variations().
+                      Written to discarded.jsonl if provided and non-empty.
             output_dir: Override the output directory. Defaults to
                         datasets/generated/sensitivity/{date}_{source_stem}_{model_slug}/.
 
@@ -220,6 +253,13 @@ class VariationGenerator:
                         "metadata": sample.metadata,
                     }) + "\n")
             logger.info("saved %d samples to %s", len(ds), jsonl_path)
+
+        if discards:
+            discarded_path = output_dir / "discarded.jsonl"
+            with discarded_path.open("w") as f:
+                for entry in discards:
+                    f.write(json.dumps(entry) + "\n")
+            logger.info("saved %d discarded samples to %s", len(discards), discarded_path)
 
         metadata = {
             "source_path": str(Path(source_path).resolve()),
@@ -257,7 +297,9 @@ class VariationGenerator:
         if not directory.exists():
             raise FileNotFoundError(f"variation directory not found: {directory}")
 
-        jsonl_files = sorted(directory.glob("*.jsonl"))
+        jsonl_files = sorted(
+            p for p in directory.glob("*.jsonl") if p.stem != "discarded"
+        )
         if not jsonl_files:
             raise ValueError(f"no JSONL files found in {directory}")
 

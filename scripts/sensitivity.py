@@ -120,11 +120,13 @@ def main() -> None:
         raw_variations = gen.generate(ds, variations=args.variations)
 
         print(f"Validating variations (threshold={args.validation_threshold}, judge={judge_model})...")
-        variations = gen.validate_variations(
+        variations, discards = gen.validate_variations(
             raw_variations,
             validation_scorer=validation_judge,
             threshold=args.validation_threshold,
         )
+        if discards:
+            print(f"  {len(discards)} sample(s) discarded by validity filter (see discarded.jsonl)")
 
         if not args.no_save_variations:
             saved_dir = gen.save_variations(
@@ -132,6 +134,7 @@ def main() -> None:
                 original=raw_variations,
                 source_path=args.dataset,
                 threshold=args.validation_threshold,
+                discards=discards,
             )
             print(f"Variations saved → {saved_dir}")
 

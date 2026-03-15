@@ -108,6 +108,12 @@ class SensitivityReporter:
             if non_baseline else None
         )
 
+        baseline_n = len(results_by_variation.get("baseline", []))
+        most_dest_n = (
+            len(results_by_variation.get(most_destabilising, []))
+            if most_destabilising else None
+        )
+
         # Per-sample table
         ps_headers = ["id"] + variation_names + ["variance", "verdict"]
         ps_rows = []
@@ -135,7 +141,10 @@ class SensitivityReporter:
 
         summary_line = f"{n_unstable} unstable / {n_total} samples"
         if most_destabilising:
-            summary_line += f"  (most destabilising: {most_destabilising})"
+            if most_dest_n is not None and most_dest_n != baseline_n:
+                summary_line += f"  (most destabilising: {most_destabilising}, n={most_dest_n} vs baseline n={baseline_n})"
+            else:
+                summary_line += f"  (most destabilising: {most_destabilising})"
 
         output_str = (
             f"── PER-SAMPLE VARIANCE ──\n{ps_table}\n\n"
@@ -189,6 +198,8 @@ class SensitivityReporter:
                 "n_unstable": n_unstable,
                 "n_total": n_total,
                 "most_destabilising": most_destabilising,
+                "most_destabilising_n": most_dest_n,
+                "baseline_n": baseline_n,
             },
         }
         (sens_dir / "sensitivity.json").write_text(json.dumps(payload, indent=2))
