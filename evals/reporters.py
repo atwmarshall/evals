@@ -67,16 +67,41 @@ class Reporter:
         scorer_name: str,
         model: str = "unknown",
     ) -> tuple[str, Path]:
-        rows = [
-            [
+        has_tier   = any("tier_used"     in r.metadata for r in results)
+        has_format = any("format_status" in r.metadata for r in results)
+
+        rows = []
+        for r in results:
+            row = [
                 r.sample.id,
                 f"{r.score:.2f}" if r.score is not None else "—",
                 r.latency_ms,
-                r.error or "",
             ]
-            for r in results
-        ]
-        table_str = tabulate(rows, headers=["id", "score", "latency_ms", "error"], tablefmt="simple")
+            if has_tier:
+                sm = r.metadata
+                if "tier_used" in sm:
+                    tier = sm["tier_used"]
+                    if tier == "fast":
+                        fast = sm.get("fast_score")
+                        tier_str = f"fast/{fast:.2f}" if fast is not None else "fast"
+                    else:
+                        tier_str = "judge"
+                else:
+                    tier_str = ""
+                row.append(tier_str)
+            if has_format:
+                row.append(r.metadata.get("format_status", ""))
+            row.append(r.error or "")
+            rows.append(row)
+
+        headers = ["id", "score", "latency_ms"]
+        if has_tier:
+            headers.append("tier_used")
+        if has_format:
+            headers.append("format_status")
+        headers.append("error")
+
+        table_str = tabulate(rows, headers=headers, tablefmt="simple")
 
         summary = self._summarise(results)
         mean_score = summary["mean_score"]

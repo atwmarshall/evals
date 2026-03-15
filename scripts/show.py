@@ -274,19 +274,44 @@ def inspect_run(run_dir: Path, verbose: bool, sample_id: str | None = None, fail
         return
 
     display_rows = [r for r in rows if _is_failure(r)] if failures_only else rows
-    table = [
-        [
+
+    has_tier   = any("tier_used"     in (r.get("scorer_metadata") or {}) for r in display_rows)
+    has_format = any("format_status" in (r.get("scorer_metadata") or {}) for r in display_rows)
+
+    table = []
+    for r in display_rows:
+        sm = r.get("scorer_metadata") or {}
+        row = [
             r["id"],
             f"{r['score']:.2f}" if r["score"] is not None else "—",
             r["latency_ms"],
-            _error_type(r),
-            _short(r.get("error") or "", 60),
         ]
-        for r in display_rows
-    ]
+        if has_tier:
+            if "tier_used" in sm:
+                tier = sm["tier_used"]
+                if tier == "fast":
+                    fast = sm.get("fast_score")
+                    tier_str = f"fast/{fast:.2f}" if fast is not None else "fast"
+                else:
+                    tier_str = "judge"
+            else:
+                tier_str = ""
+            row.append(tier_str)
+        if has_format:
+            row.append(sm.get("format_status", ""))
+        row += [_error_type(r), _short(r.get("error") or "", 60)]
+        table.append(row)
+
+    headers = ["id", "score", "latency_ms"]
+    if has_tier:
+        headers.append("tier_used")
+    if has_format:
+        headers.append("format_status")
+    headers += ["type", "error"]
+
     if failures_only:
         print(f"(failures only: {len(display_rows)}/{len(rows)})\n")
-    print(tabulate(table, headers=["id", "score", "latency_ms", "type", "error"], tablefmt="simple"))
+    print(tabulate(table, headers=headers, tablefmt="simple"))
 
     failures = [r for r in rows if _error_type(r) != "pass"]
     if failures and verbose:
@@ -318,19 +343,44 @@ def inspect_jsonl(path: Path, sample_id: str | None, verbose: bool, failures_onl
         return
 
     display_rows = [r for r in rows if _is_failure(r)] if failures_only else rows
-    table = [
-        [
+
+    has_tier   = any("tier_used"     in (r.get("scorer_metadata") or {}) for r in display_rows)
+    has_format = any("format_status" in (r.get("scorer_metadata") or {}) for r in display_rows)
+
+    table = []
+    for r in display_rows:
+        sm = r.get("scorer_metadata") or {}
+        row = [
             r.get("id"),
             f"{r['score']:.2f}" if r.get("score") is not None else "—",
             r.get("latency_ms"),
-            _error_type(r),
-            _short(r.get("error") or "", 60),
         ]
-        for r in display_rows
-    ]
+        if has_tier:
+            if "tier_used" in sm:
+                tier = sm["tier_used"]
+                if tier == "fast":
+                    fast = sm.get("fast_score")
+                    tier_str = f"fast/{fast:.2f}" if fast is not None else "fast"
+                else:
+                    tier_str = "judge"
+            else:
+                tier_str = ""
+            row.append(tier_str)
+        if has_format:
+            row.append(sm.get("format_status", ""))
+        row += [_error_type(r), _short(r.get("error") or "", 60)]
+        table.append(row)
+
+    headers = ["id", "score", "latency_ms"]
+    if has_tier:
+        headers.append("tier_used")
+    if has_format:
+        headers.append("format_status")
+    headers += ["type", "error"]
+
     label = f"  (failures only: {len(display_rows)}/{len(rows)})" if failures_only else f"  ({len(rows)} samples)"
     print(f"{path}{label}\n")
-    print(tabulate(table, headers=["id", "score", "latency_ms", "type", "error"], tablefmt="simple"))
+    print(tabulate(table, headers=headers, tablefmt="simple"))
 
     if verbose:
         print()
