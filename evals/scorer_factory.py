@@ -83,6 +83,8 @@ def build_scorer(
             )
         case "context-sufficiency":
             from evals.scorers.context_sufficiency import ContextSufficiencyScorer
-            return ContextSufficiencyScorer()
+            return ContextSufficiencyScorer(
+                **({"model": args.judge_model} if args.judge_model else {})
+            )
         case _:
             sys.exit(f"Unknown scorer: {args.scorer!r}. Choose from: {SCORER_CHOICES}")

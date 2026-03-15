@@ -99,12 +99,6 @@ class TestFaithfulnessScorer:
         assert result is None
 
 
-def _make_embed_response(embeddings: list[list[float]]):
-    resp = MagicMock()
-    resp.embeddings = embeddings
-    return resp
-
-
 class TestContextSufficiencyScorer:
     @pytest.fixture
     def scorer(self):
@@ -114,7 +108,6 @@ class TestContextSufficiencyScorer:
         assert isinstance(scorer, DatasetScorer)
 
     def test_no_completion_arg(self, scorer):
-        # The 2-arg signature is structural — completion must not exist
         import inspect
         sig = inspect.signature(scorer.__call__)
         assert list(sig.parameters) == ["expected", "ctx"]
@@ -127,57 +120,74 @@ class TestContextSufficiencyScorer:
         ctx = _ctx(context=[])
         assert scorer("expected", ctx) == 0.0
 
-    def test_high_similarity_when_answer_in_context(self, scorer):
-        # expected and chunk embeddings point in same direction → cosine ~1.0
+    def test_yes_response_returns_1(self, scorer):
         scorer._client = MagicMock()
-        scorer._client.embed.return_value = _make_embed_response([
-            [1.0, 0.0],   # expected
-            [0.9, 0.1],   # chunk — nearly parallel
-        ])
-        ctx = _ctx(context=["some relevant chunk"])
-        score = scorer("Paris is France's capital", ctx)
-        assert score > 0.8
+        scorer._client.chat.return_value = _mock_response("YES")
+        ctx = _ctx(context=["The capital of Australia is Canberra."])
+        assert scorer("Canberra", ctx) == 1.0
 
-    def test_low_similarity_when_answer_absent(self, scorer):
-        # embeddings are orthogonal → cosine ≈ 0
+    def test_no_response_returns_0(self, scorer):
         scorer._client = MagicMock()
-        scorer._client.embed.return_value = _make_embed_response([
-            [1.0, 0.0],   # expected
-            [0.0, 1.0],   # chunk — orthogonal
-        ])
-        ctx = _ctx(context=["unrelated context"])
-        score = scorer("Canberra", ctx)
-        assert score < 0.1
+        scorer._client.chat.return_value = _mock_response("NO")
+        ctx = _ctx(context=["Sydney is a city in New South Wales."])
+        assert scorer("Canberra", ctx) == 0.0
 
-    def test_returns_max_across_chunks(self, scorer):
-        # Best chunk should win
+    def test_api_error_returns_none(self, scorer):
         scorer._client = MagicMock()
-        scorer._client.embed.return_value = _make_embed_response([
-            [1.0, 0.0],   # expected
-            [0.0, 1.0],   # chunk 1 — orthogonal (bad)
-            [1.0, 0.0],   # chunk 2 — identical (perfect)
-        ])
-        ctx = _ctx(context=["bad chunk", "perfect chunk"])
-        score = scorer("answer", ctx)
-        assert score == pytest.approx(1.0)
+        scorer._client.chat.side_effect = RuntimeError("connection refused")
+        ctx = _ctx(context=["some context"])
+        assert scorer("expected", ctx) is None
+
+    def test_parse_failure_returns_none(self, scorer):
+        scorer._client = MagicMock()
+        scorer._client.chat.return_value = _mock_response("I'm not sure about this.")
+        ctx = _ctx(context=["some context"])
+        assert scorer("expected", ctx) is None
+
+    def test_context_joined_with_newlines_in_prompt(self, scorer):
+        scorer._client = MagicMock()
+        scorer._client.chat.return_value = _mock_response("YES")
+        ctx = _ctx(context=["Chunk one.", "Chunk two."])
+        scorer("expected", ctx)
+        prompt = scorer._client.chat.call_args[1]["messages"][0]["content"]
+        assert "Chunk one.\nChunk two." in prompt
 
     def test_context_as_string_not_list(self, scorer):
         scorer._client = MagicMock()
-        scorer._client.embed.return_value = _make_embed_response([
-            [1.0, 0.0],
-            [1.0, 0.0],
-        ])
+        scorer._client.chat.return_value = _mock_response("YES")
         ctx = _ctx(context="The capital of France is Paris.")
-        score = scorer("Paris", ctx)
-        assert score == pytest.approx(1.0)
+        assert scorer("Paris", ctx) == 1.0
 
-    def test_embed_called_with_expected_plus_chunks(self, scorer):
+    def test_format_status_clean_on_yes(self, scorer):
         scorer._client = MagicMock()
-        scorer._client.embed.return_value = _make_embed_response([
-            [1.0, 0.0],
-            [0.5, 0.5],
-        ])
-        ctx = _ctx(context=["chunk one"])
-        scorer("my expected", ctx)
-        call_input = scorer._client.embed.call_args[1]["input"]
-        assert call_input == ["my expected", "chunk one"]
+        scorer._client.chat.return_value = _mock_response("YES")
+        ctx = _ctx(context=["Some context."])
+        scorer("expected", ctx)
+        assert ctx.metadata_out.get("context_sufficiency_format_status") == "clean"
+
+    def test_format_status_clean_on_no(self, scorer):
+        scorer._client = MagicMock()
+        scorer._client.chat.return_value = _mock_response("NO")
+        ctx = _ctx(context=["Some context."])
+        scorer("expected", ctx)
+        assert ctx.metadata_out.get("context_sufficiency_format_status") == "clean"
+
+    def test_format_status_repair_failed_on_parse_failure(self, scorer):
+        scorer._client = MagicMock()
+        scorer._client.chat.return_value = _mock_response("I'm not sure.")
+        ctx = _ctx(context=["Some context."])
+        scorer("expected", ctx)
+        assert ctx.metadata_out.get("context_sufficiency_format_status") == "repair_failed"
+
+    def test_yes_case_insensitive(self, scorer):
+        scorer._client = MagicMock()
+        scorer._client.chat.return_value = _mock_response("yes")
+        ctx = _ctx(context=["The capital of Australia is Canberra."])
+        assert scorer("Canberra", ctx) == 1.0
+
+    def test_not_enough_information_returns_none(self, scorer):
+        # A plausible hedged LLM response — starts with neither YES nor NO
+        scorer._client = MagicMock()
+        scorer._client.chat.return_value = _mock_response("Not enough information to determine this.")
+        ctx = _ctx(context=["Some context."])
+        assert scorer("expected", ctx) is None

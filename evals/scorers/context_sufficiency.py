@@ -1,39 +1,30 @@
 from __future__ import annotations
 
+import logging
 import os
 
-import numpy as np
 import ollama
 
 from evals.core import DatasetScorer, ScorerContext
 
-_EMBED_MODEL = os.environ.get("EMBED_MODEL", "nomic-embed-text")
+logger = logging.getLogger(__name__)
 
+_SUFFICIENCY_PROMPT = """\
+Does the following context contain enough information to answer this question,
+even if the answer would use different words than the context?
+Answer only YES or NO.
 
-def _embed(client: ollama.Client, texts: list[str]) -> np.ndarray:
-    response = client.embed(model=_EMBED_MODEL, input=texts)
-    return np.array(response.embeddings)
+Context: {context}
+Expected answer: {expected}"""
 
 
 class ContextSufficiencyScorer(DatasetScorer):
-    """Embedding-based dataset-quality scorer.
+    def __init__(self, model: str | None = None) -> None:
+        self.model = model or os.environ.get("JUDGE_MODEL", "llama3.2:3b")
+        host = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
+        self._client = ollama.Client(host=host)
 
-    Measures semantic similarity between the expected answer and the most
-    relevant context chunk via cosine similarity of Ollama embeddings
-    (default model: nomic-embed-text, override with EMBED_MODEL env var).
-
-    Returns the max cosine similarity across all chunks (0.0–1.0), or 0.0
-    if context is absent or empty.
-
-    Completion is structurally absent from the signature — this scorer measures
-    whether the dataset's context is sufficient to support the expected answer,
-    not whether the model produced a good answer.
-    """
-
-    def __init__(self) -> None:
-        self._client = ollama.Client()
-
-    def __call__(self, expected: str, ctx: ScorerContext) -> float:
+    def __call__(self, expected: str, ctx: ScorerContext) -> float | None:
         context = ctx.metadata.get("context")
         if not context:
             return 0.0
@@ -42,11 +33,30 @@ class ContextSufficiencyScorer(DatasetScorer):
         if not chunks:
             return 0.0
 
-        all_embs = _embed(self._client, [expected] + chunks)
-        expected_emb = all_embs[0]
-        chunk_embs = all_embs[1:]
+        prompt = _SUFFICIENCY_PROMPT.format(
+            context="\n".join(chunks), expected=expected
+        )
 
-        norms = np.linalg.norm(chunk_embs, axis=1) * np.linalg.norm(expected_emb)
-        similarities = np.dot(chunk_embs, expected_emb) / norms
+        try:
+            response = self._client.chat(
+                model=self.model,
+                messages=[{"role": "user", "content": prompt}],
+                options={"temperature": 0.0},
+            )
+            raw = response.message.content or ""
+        except Exception as e:
+            logger.error("context_sufficiency api error: %s", e)
+            return None
 
-        return float(np.max(similarities))
+        words = raw.strip().upper().split()
+        first = words[0].rstrip(".,!?:;") if words else ""
+        if first == "YES":
+            ctx.metadata_out["context_sufficiency_format_status"] = "clean"
+            return 1.0
+        elif first == "NO":
+            ctx.metadata_out["context_sufficiency_format_status"] = "clean"
+            return 0.0
+        else:
+            logger.warning("context_sufficiency unexpected response: %r", raw)
+            ctx.metadata_out["context_sufficiency_format_status"] = "repair_failed"
+            return None

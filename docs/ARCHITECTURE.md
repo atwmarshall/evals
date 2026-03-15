@@ -64,7 +64,7 @@ class MyDatasetScorer(DatasetScorer):
         ...  # evaluate dataset quality from expected + ctx.metadata
 ```
 
-Runner detects `isinstance(scorer, DatasetScorer)` and skips the model call. `RunResult.completion` is `""` and `latency_ms` is `0`. Run dataset scorers before model evals to validate dataset construction.
+Runner detects `isinstance(scorer, DatasetScorer)` and skips the model call. `RunResult.completion` is `""` and `latency_ms` is `0`. `latency_ms=0` records evaluated-model latency only — a dataset scorer like `ContextSufficiencyScorer` makes its own LLM call internally, but that time is intentionally not attributed to the model under test. Run dataset scorers before model evals to validate dataset construction.
 
 Class-based scorers (LLMJudgeScorer, CascadeScorer, FaithfulnessScorer, ContextSufficiencyScorer) hold state but their `__call__` satisfies one of the two contracts above.
 

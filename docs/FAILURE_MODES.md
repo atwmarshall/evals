@@ -152,7 +152,15 @@ _Add entries here. Include your variance numbers:_
 **Why it happened**: Binary classification needs a threshold. The obvious move is to pick the one that separates passing and failing samples — which is exactly what we did against the only data we had.
 **What it means**: The threshold was calibrated on the test set. Any threshold tuned on eval data is no longer an independent test — adding one new sample could require retuning. More fundamentally, ROUGE-1 is lexical: "temperature 0 makes outputs deterministic" and "use temperature 0 for determinism" share few tokens but mean the same thing. Token overlap penalises correct paraphrase.
 **How you'd fix it**: Replace with embedding cosine similarity. No threshold to tune — the score is continuous and the gap between semantically present and semantically absent answers is natural, not engineered.
-**Status**: implemented — `evals/scorers/context_sufficiency.py` now uses `ollama.Client().embed()` with `nomic-embed-text` (configurable via `EMBED_MODEL`). Returns max cosine similarity across chunks, 0.0–1.0, no threshold.
+**Status**: implemented (embeddings) — then superseded. See next entry.
+
+### 2026-03-15 · 7 · Embedding cosine similarity too semantic for entailment checking
+
+**What happened**: rag-006 scored ~0.59 with `nomic-embed-text` cosine similarity. "Canberra" vs chunks about Sydney and Melbourne — semantically related (all Australian cities) but Canberra is not derivable from the context.
+**Why it happened**: Embeddings measure topical relatedness, not logical entailment. Australian city names cluster together in embedding space regardless of whether any specific city appears in the text.
+**What it means**: Cosine similarity answers "are these about the same topic?" not "does this text contain enough information to produce this answer?" Wrong question for context sufficiency checking.
+**How you'd fix it**: LLM YES/NO entailment check. An LLM understands that "Canberra" is not derivable from context about Sydney and Melbourne even when embeddings disagree.
+**Status**: implemented — `ContextSufficiencyScorer` now uses a chat call asking `Does the following context contain enough information to answer this question? Answer only YES or NO.` Returns 1.0/0.0 on YES/NO, None on unexpected response (e.g. "Not enough information"). numpy dependency removed.
 
 ### Challenge 8 · open problem
 
