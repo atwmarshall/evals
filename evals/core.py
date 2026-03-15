@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -75,6 +76,9 @@ class ScorerContext:
     input: str = ""
     metadata: dict = field(default_factory=dict)
     metadata_out: dict = field(default_factory=dict)
+
+
+ScorerCallable = Callable[["str", "str", "ScorerContext"], float | None]
 
 
 @dataclass

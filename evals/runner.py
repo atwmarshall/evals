@@ -3,11 +3,11 @@ from __future__ import annotations
 import logging
 import os
 import time
-from collections.abc import Callable, Iterable
+from collections.abc import Iterable
 
 import ollama
 
-from evals.core import EvalConfig, RunResult, Sample, ScorerContext
+from evals.core import EvalConfig, RunResult, Sample, ScorerCallable, ScorerContext
 
 logger = logging.getLogger(__name__)
 
@@ -16,7 +16,7 @@ class Runner:
     def run(
         self,
         dataset: Iterable[Sample],
-        scorer: Callable[[str, str, ScorerContext], float | None],
+        scorer: ScorerCallable,
         config: EvalConfig,
     ) -> list[RunResult]:
         host = os.environ.get("OLLAMA_HOST", "http://localhost:11434")

@@ -1,11 +1,7 @@
 from __future__ import annotations
 
-from collections.abc import Callable
-
-from evals.core import ScorerContext
+from evals.core import ScorerCallable, ScorerContext
 from evals.scorers.llm_judge import LLMJudgeScorer
-
-ScorerCallable = Callable[[str, str, ScorerContext], float | None]
 
 # Score at or above this threshold short-circuits to the fast tier result.
 # 1.0 means only a perfect fast-tier score avoids the judge call.

@@ -5,7 +5,7 @@ import os
 
 import ollama
 
-from evals.core import Dataset, Sample
+from evals.core import Dataset, Sample, ScorerCallable, ScorerContext
 
 logger = logging.getLogger(__name__)
 
@@ -90,6 +90,77 @@ class VariationGenerator:
             result[variation_name] = Dataset(samples=varied_samples)
 
         return result
+
+    def validate_variations(
+        self,
+        variations: dict[str, Dataset],
+        scorer: ScorerCallable,
+        threshold: float = 0.8,
+    ) -> dict[str, Dataset]:
+        """Return a filtered copy of `variations` where per-sample validity is confirmed.
+
+        For each variation type (excluding "baseline"), scores the original expected
+        answer against the varied input using the provided scorer. Any (sample, variation)
+        pair where the scorer returns None or a score below `threshold` is discarded.
+
+        Note: with pure scorers (exact_match, normalised_match, regex) this is a no-op —
+        they do not read ctx.input, so the expected answer always scores 1.0 against itself.
+        This step is only meaningfully discriminating with context-aware scorers
+        (LLMJudgeScorer, CascadeScorer).
+
+        The "baseline" key is passed through unchanged without scoring.
+        Empty variation Datasets (all samples filtered) are kept as keys with samples=[]
+        so downstream reporters see them rather than silently missing them.
+        """
+        validated: dict[str, Dataset] = {}
+
+        for variation_name, dataset in variations.items():
+            if variation_name == "baseline":
+                validated["baseline"] = dataset
+                continue
+
+            valid_samples: list[Sample] = []
+
+            for varied_sample in dataset:
+                ctx = ScorerContext(
+                    input=varied_sample.input,
+                    metadata={**varied_sample.metadata, "id": varied_sample.id},
+                    metadata_out={},
+                )
+                try:
+                    score = scorer(varied_sample.expected, varied_sample.expected, ctx)
+                except Exception as exc:
+                    logger.warning(
+                        "validate_variations: scorer raised for sample %s variation %r: %s — discarding",
+                        varied_sample.id, variation_name, exc,
+                    )
+                    continue
+
+                if score is None:
+                    logger.warning(
+                        "validate_variations: discarded sample %s from variation %r — scorer_returned_none (threshold=%.3f)",
+                        varied_sample.id, variation_name, threshold,
+                    )
+                    continue
+
+                if score < threshold:
+                    logger.warning(
+                        "validate_variations: discarded sample %s from variation %r — score_below_threshold (score=%.3f, threshold=%.3f)",
+                        varied_sample.id, variation_name, score, threshold,
+                    )
+                    continue
+
+                valid_samples.append(varied_sample)
+
+            if not valid_samples:
+                logger.warning(
+                    "validate_variations: variation %r has zero valid samples after filtering",
+                    variation_name,
+                )
+
+            validated[variation_name] = Dataset(samples=valid_samples)
+
+        return validated
 
     def _vary_sample(self, input_text: str, instruction: str) -> str:
         """Call the LLM to rewrite input_text according to instruction.
