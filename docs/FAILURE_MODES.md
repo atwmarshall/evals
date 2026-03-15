@@ -107,6 +107,17 @@ _Add entries here as you build_
 **How you'd fix it**: Add a `partial` outcome tier. Rename `type` → `outcome`. Column order: `id score outcome latency_ms`. Add `--strict` flag to `show.py` to filter to score < 0.5 only.
 **Status**: implemented — `_outcome()` in `show.py`, `_outcome_str()` in `reporters.py`, `--strict` / `-s` flag added.
 
+### 2026-03-15 · Challenge 7 · General embeddings too semantic for context sufficiency
+
+**What happened**: rag-006 scored 0.66 with embedding cosine similarity.
+Canberra not in context but semantically related to Sydney/Melbourne.
+**Why it happened**: nomic-embed-text captures topical similarity not
+answer presence. All Australian cities cluster together in embedding space.
+**What it means**: embedding similarity measures topical relatedness,
+not logical entailment. Wrong tool for "is this specific fact in this context?"
+**How you'd fix it**: LLM-based YES/NO entailment check, or RAGAS-style
+atomic statement decomposition.
+
 ### Challenge 3 · LLM-as-judge
 
 _Add entries here as you build. Specific things to watch for:_
@@ -135,7 +146,13 @@ _Add entries here. Include your variance numbers:_
 
 ### Challenge 7 · RAG eval suite
 
-_Add entries here as you build_
+### 2026-03-15 · 7 · ROUGE-1 threshold tuned on the test set
+
+**What happened**: `ContextSufficiencyScorer` used word-level token overlap (ROUGE-1) with `threshold=0.35`. The threshold was chosen because it cleanly separated rag-006 (overlap=0%) from rag-010 (overlap=38%) on 10 samples.
+**Why it happened**: Binary classification needs a threshold. The obvious move is to pick the one that separates passing and failing samples — which is exactly what we did against the only data we had.
+**What it means**: The threshold was calibrated on the test set. Any threshold tuned on eval data is no longer an independent test — adding one new sample could require retuning. More fundamentally, ROUGE-1 is lexical: "temperature 0 makes outputs deterministic" and "use temperature 0 for determinism" share few tokens but mean the same thing. Token overlap penalises correct paraphrase.
+**How you'd fix it**: Replace with embedding cosine similarity. No threshold to tune — the score is continuous and the gap between semantically present and semantically absent answers is natural, not engineered.
+**Status**: implemented — `evals/scorers/context_sufficiency.py` now uses `ollama.Client().embed()` with `nomic-embed-text` (configurable via `EMBED_MODEL`). Returns max cosine similarity across chunks, 0.0–1.0, no threshold.
 
 ### Challenge 8 · open problem
 

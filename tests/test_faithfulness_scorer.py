@@ -99,6 +99,12 @@ class TestFaithfulnessScorer:
         assert result is None
 
 
+def _make_embed_response(embeddings: list[list[float]]):
+    resp = MagicMock()
+    resp.embeddings = embeddings
+    return resp
+
+
 class TestContextSufficiencyScorer:
     @pytest.fixture
     def scorer(self):
@@ -107,29 +113,71 @@ class TestContextSufficiencyScorer:
     def test_is_dataset_scorer(self, scorer):
         assert isinstance(scorer, DatasetScorer)
 
-    def test_returns_1_when_expected_in_context(self, scorer):
-        ctx = _ctx(context=["France's capital is Paris."])
-        assert scorer("Paris", ctx) == 1.0
-
-    def test_returns_0_when_expected_not_in_context(self, scorer):
-        # rag-006 case: Canberra not in context
-        ctx = _ctx(context=["Sydney is the largest city.", "Melbourne is well-known."])
-        assert scorer("Canberra", ctx) == 0.0
-
-    def test_case_insensitive_match(self, scorer):
-        ctx = _ctx(context=["The capital city is Paris."])
-        assert scorer("paris", ctx) == 1.0
-
-    def test_returns_none_when_no_context(self, scorer):
-        ctx = _ctx()  # no context key
-        assert scorer("expected", ctx) is None
-
     def test_no_completion_arg(self, scorer):
         # The 2-arg signature is structural — completion must not exist
         import inspect
         sig = inspect.signature(scorer.__call__)
         assert list(sig.parameters) == ["expected", "ctx"]
 
+    def test_returns_0_when_no_context(self, scorer):
+        ctx = _ctx()  # no context key
+        assert scorer("expected", ctx) == 0.0
+
+    def test_returns_0_when_context_is_empty_list(self, scorer):
+        ctx = _ctx(context=[])
+        assert scorer("expected", ctx) == 0.0
+
+    def test_high_similarity_when_answer_in_context(self, scorer):
+        # expected and chunk embeddings point in same direction → cosine ~1.0
+        scorer._client = MagicMock()
+        scorer._client.embed.return_value = _make_embed_response([
+            [1.0, 0.0],   # expected
+            [0.9, 0.1],   # chunk — nearly parallel
+        ])
+        ctx = _ctx(context=["some relevant chunk"])
+        score = scorer("Paris is France's capital", ctx)
+        assert score > 0.8
+
+    def test_low_similarity_when_answer_absent(self, scorer):
+        # embeddings are orthogonal → cosine ≈ 0
+        scorer._client = MagicMock()
+        scorer._client.embed.return_value = _make_embed_response([
+            [1.0, 0.0],   # expected
+            [0.0, 1.0],   # chunk — orthogonal
+        ])
+        ctx = _ctx(context=["unrelated context"])
+        score = scorer("Canberra", ctx)
+        assert score < 0.1
+
+    def test_returns_max_across_chunks(self, scorer):
+        # Best chunk should win
+        scorer._client = MagicMock()
+        scorer._client.embed.return_value = _make_embed_response([
+            [1.0, 0.0],   # expected
+            [0.0, 1.0],   # chunk 1 — orthogonal (bad)
+            [1.0, 0.0],   # chunk 2 — identical (perfect)
+        ])
+        ctx = _ctx(context=["bad chunk", "perfect chunk"])
+        score = scorer("answer", ctx)
+        assert score == pytest.approx(1.0)
+
     def test_context_as_string_not_list(self, scorer):
-        ctx = _ctx(context="France's capital is Paris.")
-        assert scorer("Paris", ctx) == 1.0
+        scorer._client = MagicMock()
+        scorer._client.embed.return_value = _make_embed_response([
+            [1.0, 0.0],
+            [1.0, 0.0],
+        ])
+        ctx = _ctx(context="The capital of France is Paris.")
+        score = scorer("Paris", ctx)
+        assert score == pytest.approx(1.0)
+
+    def test_embed_called_with_expected_plus_chunks(self, scorer):
+        scorer._client = MagicMock()
+        scorer._client.embed.return_value = _make_embed_response([
+            [1.0, 0.0],
+            [0.5, 0.5],
+        ])
+        ctx = _ctx(context=["chunk one"])
+        scorer("my expected", ctx)
+        call_input = scorer._client.embed.call_args[1]["input"]
+        assert call_input == ["my expected", "chunk one"]

@@ -13,7 +13,7 @@ A weekend project to build a working LLM evaluation framework from first princip
 ```
 evals/
 ├── evals/
-│   ├── core.py                    # Sample, Dataset, RunResult, ScorerContext, EvalConfig, ScorerCallable
+│   ├── core.py                    # Sample, Dataset, RunResult, ScorerContext, EvalConfig, ScorerCallable, DatasetScorer, AnyScorer
 │   ├── runner.py                  # Calls the model, populates RunResult
 │   ├── reporters.py               # Aggregates scores, prints tables, saves JSON
 │   ├── scorer_factory.py          # build_scorer() — maps CLI args to scorer instances
@@ -27,6 +27,8 @@ evals/
 │       ├── schema.py              # JSONSchemaScorer
 │       ├── llm_judge.py           # LLMJudgeScorer
 │       ├── cascade.py             # CascadeScorer (fast + judge two-tier)
+│       ├── faithfulness.py        # FaithfulnessScorer (RAG — LLM judge)
+│       ├── context_sufficiency.py # ContextSufficiencyScorer (RAG — embedding, DatasetScorer)
 │       └── _json_utils.py         # _repair_truncated_json (internal)
 ├── scripts/
 │   ├── run_eval.py                # CLI: run a single eval
@@ -356,6 +358,10 @@ In sensitivity mode, `--failures-only` filters the per-sample table to rows wher
 
 ## Scorers
 
+There are two scorer contracts:
+
+**Model scorers** — evaluate model output. Runner calls the model first, then passes completion to the scorer:
+
 | Name | CLI flag | Returns | Notes |
 |------|----------|---------|-------|
 | `exact_match` | `--scorer exact` | `0.0` or `1.0` | Strict equality after strip |
@@ -365,6 +371,15 @@ In sensitivity mode, `--failures-only` filters the per-sample table to rows wher
 | `JSONSchemaScorer` | `--scorer schema --schema path/to/schema.json` | `0.0`, `0.5`, or `1.0` | See partial credit below |
 | `LLMJudgeScorer` | `--scorer judge` | `0.0`–`1.0` or `None` | Rubric-based, uses judge model |
 | `CascadeScorer` | `--scorer cascade` | `0.0`–`1.0` or `None` | Fast tier first, judge as fallback |
+| `FaithfulnessScorer` | `--scorer faithfulness` | `0.0`–`1.0` or `None` | RAG: LLM judge grounding check against `context` chunks |
+
+**Dataset scorers** — evaluate dataset quality. Runner skips the model call entirely (`completion=""`, `latency_ms=0`). Signature drops `completion` structurally — it is not ignored, it is absent:
+
+| Name | CLI flag | Returns | Notes |
+|------|----------|---------|-------|
+| `ContextSufficiencyScorer` | `--scorer context-sufficiency` | `0.0`–`1.0` | RAG: cosine similarity of `expected` vs best context chunk (Ollama embeddings) |
+
+Run dataset scorers **before** model evals. If context sufficiency is low for a sample, remove it — a bad sample produces misleading model scores regardless of scorer quality.
 
 **JSONSchemaScorer partial credit:**
 - `1.0` — valid JSON that passes the schema
@@ -372,7 +387,7 @@ In sensitivity mode, `--failures-only` filters the per-sample table to rows wher
 - `0.0` — not valid JSON (after repair attempt)
 
 **Score values:**
-- `0.0`–`1.0` — normalised score (1.0 = correct)
+- `0.0`–`1.0` — normalised score (1.0 = correct / fully sufficient)
 - `None` — scorer failure (API error or unparseable judge response) — recorded as an error in results, distinct from a genuine low score
 
 In `sensitivity.py`, the scorer is tested for reliability — the same scorer runs across all variation types to measure whether it produces consistent scores.
@@ -383,8 +398,8 @@ In `sensitivity.py`, the scorer is tested for reliability — the same scorer ru
 |------|--------|---------|
 | `--pattern` | `regex`, `multi-regex` | required |
 | `--schema` | `schema` | required |
-| `--scale` | `judge`, `cascade` | `5` |
-| `--judge-model` | `judge`, `cascade` | `JUDGE_MODEL` env |
+| `--scale` | `judge`, `cascade`, `faithfulness` | `5` |
+| `--judge-model` | `judge`, `cascade`, `faithfulness` | `JUDGE_MODEL` env |
 | `--fast-tier` | `cascade` | `normalised` |
 | `--cascade-threshold` | `cascade` (in `sensitivity.py`) | `1.0` |
 
@@ -476,6 +491,7 @@ Set by scorers to record per-sample diagnostic state. Keys present depend on whi
 |-----|--------|--------|
 | `format_status` | `JSONSchemaScorer` | `"clean"` — parsed without repair<br>`"repaired"` — truncated JSON was fixed automatically<br>`"repair_failed"` — could not parse or repair |
 | `judge_format_status` | `LLMJudgeScorer` | Same values as above, for the judge's own response. Absent on API error. |
+| `faithfulness_format_status` | `FaithfulnessScorer` | Same values as `judge_format_status`, for the faithfulness judge response. |
 | `tier_used` | `CascadeScorer` | `"fast"` — fast scorer met threshold, judge not called<br>`"judge"` — fast scorer missed, judge was called |
 | `fast_score` | `CascadeScorer` | The raw score from the fast tier (`float` or `None`). Always present. |
 
@@ -509,13 +525,52 @@ For RAG datasets, samples include an additional `context` field:
 |----------|---------|---------|-------|
 | `OLLAMA_HOST` | Runner, all scorers | `http://localhost:11434` | |
 | `DEFAULT_MODEL` | `EvalConfig` | `llama3.2:3b` | Model being evaluated |
-| `JUDGE_MODEL` | `LLMJudgeScorer`, `CascadeScorer` | `llama3.2:3b` | Scores completions |
+| `JUDGE_MODEL` | `LLMJudgeScorer`, `CascadeScorer`, `FaithfulnessScorer` | `llama3.2:3b` | Scores completions |
+| `EMBED_MODEL` | `ContextSufficiencyScorer` | `nomic-embed-text` | Ollama embedding model for context sufficiency |
 | `VARIATION_MODEL` | `VariationGenerator` | falls back to `DEFAULT_MODEL` | Must differ from `JUDGE_MODEL` in sensitivity analysis |
 | `PERTURBATION_MODEL` | `PerturbationGenerator` | falls back to `DEFAULT_MODEL` | Can equal evaluated model — no circularity concern |
 | `MAX_TOKENS` | `EvalConfig` | `1024` | |
 | `RESULTS_DIR` | `Reporter`, `SensitivityReporter`, `RobustnessReporter` | `results/` | |
 
 ---
+
+## RAG eval (Challenge 7)
+
+The dataset at `datasets/challenge7/rag_qa.jsonl` is a fixed-context eval — `context` fields are pre-populated with relevant chunks. This isolates faithfulness and answer quality from retrieval quality.
+
+### Three dimensions, three scorers
+
+| Dimension | Scorer | What it measures |
+|-----------|--------|-----------------|
+| Context quality | `context-sufficiency` | Is the expected answer semantically present in the context? (dataset property) |
+| Faithfulness | `faithfulness` | Is the model's answer grounded in the context? (model behaviour) |
+| Answer quality | `normalised` | Does the model's answer match the expected answer? (correctness) |
+
+```bash
+# Step 1: validate dataset — which samples have insufficient context?
+uv run python scripts/run_eval.py \
+  --dataset datasets/challenge7/rag_qa.jsonl \
+  --scorer context-sufficiency --model nomic-embed-text
+
+# Step 2: faithfulness — is the model grounded in what the context says?
+uv run python scripts/run_eval.py \
+  --dataset datasets/challenge7/rag_qa.jsonl \
+  --scorer faithfulness --model llama3.2:3b
+
+# Step 3: accuracy — does the model produce the correct answer?
+uv run python scripts/run_eval.py \
+  --dataset datasets/challenge7/rag_qa.jsonl \
+  --scorer normalised --model llama3.2:3b
+```
+
+### rag-006 — the adversarial case
+
+Sample rag-006 ("What is the capital of Australia?") has "Canberra" deliberately absent from its context chunks (which mention Sydney and Melbourne). This creates a forced tension:
+
+- A model that answers "Canberra" is **correct but hallucinating** — high accuracy, low faithfulness
+- A model that hedges ("The context doesn't say") is **grounded but wrong** — high faithfulness, low accuracy
+
+`context-sufficiency` will score rag-006 low (Canberra not semantically present). Use `show.py --id rag-006` to see the context chunks alongside the score — without the context visible, the low score looks like a bug.
 
 ## Key things to watch for
 
