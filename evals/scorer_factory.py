@@ -3,7 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from collections.abc import Callable
+from evals.core import AnyScorer
 from pathlib import Path
 
 from evals.scorers.cascade import CascadeScorer
@@ -29,7 +29,7 @@ _EXTRACTION_SCHEMA: dict = {
 def build_scorer(
     args: argparse.Namespace,
     evaluated_model: str | None = None,
-) -> Callable[[str, str], float]:
+) -> AnyScorer:
     match args.scorer:
         case "exact":
             return exact_match
@@ -82,7 +82,7 @@ def build_scorer(
                 **({"model": args.judge_model} if args.judge_model else {}),
             )
         case "context-sufficiency":
-            from evals.scorers.faithfulness import ContextSufficiencyScorer
+            from evals.scorers.context_sufficiency import ContextSufficiencyScorer
             return ContextSufficiencyScorer()
         case _:
             sys.exit(f"Unknown scorer: {args.scorer!r}. Choose from: {SCORER_CHOICES}")

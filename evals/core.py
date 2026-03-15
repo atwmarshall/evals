@@ -5,6 +5,7 @@ import os
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Union
 
 
 @dataclass
@@ -79,6 +80,23 @@ class ScorerContext:
 
 
 ScorerCallable = Callable[[str, str, ScorerContext], float | None]
+
+
+class DatasetScorer:
+    """Marker interface. Runner detects this and skips the model call entirely.
+
+    Subclasses evaluate dataset quality, not model output. Their __call__
+    signature drops `completion` — it is not ignored, it is structurally absent.
+
+    Run before model evals to validate dataset construction. If context
+    sufficiency is low for a sample, remove it — a bad sample produces
+    misleading model scores regardless of scorer quality.
+    """
+    pass
+
+
+DatasetScorerCallable = Callable[[str, ScorerContext], float | None]
+AnyScorer = Union[ScorerCallable, DatasetScorerCallable]
 
 
 @dataclass

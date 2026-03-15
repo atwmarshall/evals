@@ -159,7 +159,7 @@ class Reporter:
 
         with (run_dir / "samples.jsonl").open("w") as f:
             for r in results:
-                f.write(json.dumps({
+                record: dict = {
                     "id": r.sample.id,
                     "expected": r.sample.expected,
                     "score": r.score,
@@ -167,7 +167,13 @@ class Reporter:
                     "completion": r.completion,
                     "error": r.error,
                     "scorer_metadata": r.metadata,
-                }) + "\n")
+                }
+                # Preserve sample metadata for show.py (e.g. context chunks for RAG)
+                if r.sample.metadata:
+                    record["sample_metadata"] = {
+                        k: v for k, v in r.sample.metadata.items() if k != "id"
+                    }
+                f.write(json.dumps(record) + "\n")
 
         return f"{table_str}\n\n{summary_str}", run_dir
 
@@ -208,7 +214,7 @@ class Reporter:
             safe_model = _sanitise_model(model_id)
             with (bench_dir / f"{safe_model}.jsonl").open("w") as f:
                 for r in results:
-                    f.write(json.dumps({
+                    record: dict = {
                         "id": r.sample.id,
                         "expected": r.sample.expected,
                         "score": r.score,
@@ -216,7 +222,12 @@ class Reporter:
                         "completion": r.completion,
                         "error": r.error,
                         "scorer_metadata": r.metadata,
-                    }) + "\n")
+                    }
+                    if r.sample.metadata:
+                        record["sample_metadata"] = {
+                            k: v for k, v in r.sample.metadata.items() if k != "id"
+                        }
+                    f.write(json.dumps(record) + "\n")
 
         has_format = any(s.get("clean_rate") is not None for s in summaries.values())
         has_judge = any(s.get("judge_rate") is not None for s in summaries.values())

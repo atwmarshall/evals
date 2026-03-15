@@ -110,48 +110,6 @@ class FaithfulnessScorer:
         return score, None, format_status
 
 
-_OVERLAP_THRESHOLD = 0.35
-
-
-class ContextSufficiencyScorer:
-    """Deterministic scorer that measures word-level overlap between expected and context.
-
-    Expected answers are synthesized/paraphrased — they're never verbatim substrings
-    of context chunks. Instead, this checks what fraction of the unique tokens in
-    `expected` appear anywhere in the combined context text (case-insensitive).
-
-    Returns 1.0 if overlap >= 0.5, 0.0 if below, None if context is absent.
-
-    Ignores completion — this measures dataset quality, not model output.
-    For rag-006 (Canberra absent from context): overlap=0% → 0.0.
-    For all other samples: technical terms and numbers from expected appear in
-    context → high overlap → 1.0.
-    """
-
-    def __call__(self, completion: str, expected: str, ctx: ScorerContext) -> float | None:
-        context = ctx.metadata.get("context")
-        if context is None:
-            return None
-
-        # Defensive: handle plain string context
-        if isinstance(context, str):
-            chunks = [context]
-        else:
-            chunks = list(context)
-
-        if not chunks:
-            return None
-
-        context_text = " ".join(str(c) for c in chunks).lower()
-        context_tokens = set(re.findall(r"\b\w+\b", context_text))
-
-        expected_tokens = set(re.findall(r"\b\w+\b", expected.lower()))
-        if not expected_tokens:
-            return 0.0
-
-        overlap = len(expected_tokens & context_tokens) / len(expected_tokens)
-        return 1.0 if overlap >= _OVERLAP_THRESHOLD else 0.0
-
 
 def _strip_fences(raw: str) -> str:
     raw = raw.strip()

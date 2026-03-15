@@ -4,8 +4,9 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from evals.core import ScorerContext
-from evals.scorers.faithfulness import ContextSufficiencyScorer, FaithfulnessScorer
+from evals.core import DatasetScorer, ScorerContext
+from evals.scorers.context_sufficiency import ContextSufficiencyScorer
+from evals.scorers.faithfulness import FaithfulnessScorer
 
 
 def _ctx(context=None, input_text="What is the capital of Australia?", metadata=None):
@@ -103,30 +104,32 @@ class TestContextSufficiencyScorer:
     def scorer(self):
         return ContextSufficiencyScorer()
 
+    def test_is_dataset_scorer(self, scorer):
+        assert isinstance(scorer, DatasetScorer)
+
     def test_returns_1_when_expected_in_context(self, scorer):
         ctx = _ctx(context=["France's capital is Paris."])
-        assert scorer("Paris", "Paris", ctx) == 1.0
+        assert scorer("Paris", ctx) == 1.0
 
     def test_returns_0_when_expected_not_in_context(self, scorer):
         # rag-006 case: Canberra not in context
         ctx = _ctx(context=["Sydney is the largest city.", "Melbourne is well-known."])
-        assert scorer("I don't know", "Canberra", ctx) == 0.0
+        assert scorer("Canberra", ctx) == 0.0
 
     def test_case_insensitive_match(self, scorer):
         ctx = _ctx(context=["The capital city is Paris."])
-        assert scorer("paris", "paris", ctx) == 1.0
+        assert scorer("paris", ctx) == 1.0
 
     def test_returns_none_when_no_context(self, scorer):
         ctx = _ctx()  # no context key
-        assert scorer("answer", "expected", ctx) is None
+        assert scorer("expected", ctx) is None
 
-    def test_ignores_completion(self, scorer):
-        ctx1 = _ctx(context=["The answer is 42."])
-        ctx2 = _ctx(context=["The answer is 42."])
-        result1 = scorer("completion A", "42", ctx1)
-        result2 = scorer("completely different completion", "42", ctx2)
-        assert result1 == result2
+    def test_no_completion_arg(self, scorer):
+        # The 2-arg signature is structural — completion must not exist
+        import inspect
+        sig = inspect.signature(scorer.__call__)
+        assert list(sig.parameters) == ["expected", "ctx"]
 
     def test_context_as_string_not_list(self, scorer):
         ctx = _ctx(context="France's capital is Paris.")
-        assert scorer("Paris", "Paris", ctx) == 1.0
+        assert scorer("Paris", ctx) == 1.0

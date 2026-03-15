@@ -382,7 +382,20 @@ def inspect_run(run_dir: Path, verbose: bool, sample_id: str | None = None, fail
             fast_str = f"{fast:.3f}" if fast is not None else "None"
             print(f"tier_used: {sm['tier_used']}  fast_score={fast_str}")
         print(f"error: {r.get('error')}")
-        print(f"\ncompletion:\n{r.get('completion') or '(none)'}")
+        # Show context chunks if present (RAG samples)
+        sample_meta = r.get("sample_metadata") or {}
+        context = sample_meta.get("context")
+        if context:
+            chunks = [context] if isinstance(context, str) else context
+            print("\ncontext:")
+            for i, chunk in enumerate(chunks):
+                print(f"  [{i}] {chunk}")
+        # Suppress completion for dataset scorers (latency=0, completion="")
+        completion = r.get("completion")
+        if completion == "":
+            print("\ncompletion: (not applicable — dataset scorer)")
+        else:
+            print(f"\ncompletion:\n{completion or '(none)'}")
         return
 
     if strict:
