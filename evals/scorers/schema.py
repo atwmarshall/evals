@@ -7,6 +7,7 @@ import re
 import jsonschema
 
 from evals.core import ScorerContext
+from evals.scorers._json_utils import _repair_truncated_json
 
 logger = logging.getLogger(__name__)
 
@@ -36,10 +37,18 @@ class JSONSchemaScorer:
         self._schema = schema
 
     def __call__(self, completion: str, expected: str, ctx: ScorerContext) -> float:
+        cleaned = _extract_json(completion)
         try:
-            parsed = json.loads(_extract_json(completion))
+            parsed = json.loads(cleaned)
         except json.JSONDecodeError:
-            return 0.0
+            repaired = _repair_truncated_json(cleaned)
+            if repaired is None:
+                return 0.0
+            try:
+                parsed = json.loads(repaired)
+                logger.warning("json repaired (truncated): %s…", cleaned[:80])
+            except json.JSONDecodeError:
+                return 0.0
 
         try:
             jsonschema.validate(parsed, self._schema)

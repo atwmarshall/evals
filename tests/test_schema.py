@@ -38,9 +38,15 @@ class TestJSONSchemaScorer:
         scorer = JSONSchemaScorer(_SIMPLE_SCHEMA)
         assert scorer("", "", _ctx) == 0.0
 
-    def test_partial_json(self):
+    def test_partial_json_repaired_passes_schema(self):
+        # truncated JSON that repairs to a valid, schema-conforming object
         scorer = JSONSchemaScorer(_SIMPLE_SCHEMA)
-        assert scorer('{"name": "Al', "", _ctx) == 0.0
+        assert scorer('{"name": "Al', "", _ctx) == 1.0
+
+    def test_partial_json_irreparable(self):
+        # completely malformed — not even truncation, repair returns None
+        scorer = JSONSchemaScorer(_SIMPLE_SCHEMA)
+        assert scorer("not json at all", "", _ctx) == 0.0
 
     def test_json_with_leading_whitespace(self):
         scorer = JSONSchemaScorer(_SIMPLE_SCHEMA)

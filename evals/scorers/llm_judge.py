@@ -10,6 +10,7 @@ from pathlib import Path
 import ollama
 
 from evals.core import ScorerContext
+from evals.scorers._json_utils import _repair_truncated_json
 
 logger = logging.getLogger(__name__)
 
@@ -123,7 +124,15 @@ class LLMJudgeScorer:
         try:
             obj = json.loads(text)
         except json.JSONDecodeError:
-            return None, f"judge response not valid JSON: {raw!r}"
+            repaired = _repair_truncated_json(text)
+            if repaired is not None:
+                try:
+                    obj = json.loads(repaired)
+                    logger.warning("judge response repaired (truncated): %s…", raw[:80])
+                except json.JSONDecodeError:
+                    return None, f"judge response not valid JSON even after repair: {raw!r}"
+            else:
+                return None, f"judge response not valid JSON: {raw!r}"
 
         if "score" not in obj:
             return None, f"judge response missing 'score' field: {obj!r}"

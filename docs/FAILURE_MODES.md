@@ -86,8 +86,8 @@ _Add entries here as you build_
 ### [date/time] · 5 · short title
 
 **What happened**: sometimes llms speak to much - "ignore in one sentence" or ignore token limits and just get truncated - which can be fatal for JSON formatting as never closed.
-**Why it happened**: 
-**What it means**: at worst: error parsing as incomplete json. at best: answer is truncated.
+**Why it happened**: model hits max_tokens mid-output; JSON is a streaming format with no graceful truncation point. Small models are more susceptible.
+**What it means**: a structurally-sound answer gets scored 0.0, indistinguishable from a wrong answer. For judges, it shows as parse_failure in the run results.
 **How you'd fix it**: add detector and close the JSON.
 
 ### Challenge 2 · deterministic scoring
