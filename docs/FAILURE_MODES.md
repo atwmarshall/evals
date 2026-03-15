@@ -89,6 +89,7 @@ _Add entries here as you build_
 **Why it happened**: model hits max_tokens mid-output; JSON is a streaming format with no graceful truncation point. Small models are more susceptible.
 **What it means**: a structurally-sound answer gets scored 0.0, indistinguishable from a wrong answer. For judges, it shows as parse_failure in the run results.
 **How you'd fix it**: add detector and close the JSON.
+**Status**: implemented — `evals/scorers/_json_utils.py::_repair_truncated_json()` is applied automatically by `JSONSchemaScorer` and `LLMJudgeScorer`.
 
 ### Challenge 2 · deterministic scoring
 

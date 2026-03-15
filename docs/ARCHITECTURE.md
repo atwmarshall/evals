@@ -16,12 +16,14 @@ Dataset.from_jsonl()
 Runner.run(dataset, scorer, config)
     │  for each sample:
     │    completion = call_model(sample.input)
-    │    score = scorer(completion, sample.expected)
+    │    ctx = ScorerContext(input=sample.input, metadata=sample.metadata)
+    │    score = scorer(completion, sample.expected, ctx)  # float | None
     │    yield RunResult(sample, completion, score, latency_ms, error)
     ▼
 Reporter.report(results)
     │  prints table
-    │  saves results/{timestamp}.json
+    │  saves results/runs/{date}/{time}_{model}_{dataset}_{scorer}/run.json
+    │                                                              samples.jsonl
     ▼
 results/ directory
 ```
@@ -33,17 +35,25 @@ results/ directory
 A scorer is any callable that satisfies:
 
 ```python
-def scorer(completion: str, expected: str) -> float:
-    ...  # return 0.0 to 1.0
+def scorer(completion: str, expected: str, ctx: ScorerContext) -> float | None:
+    ...  # return 0.0 to 1.0, or None on parse/API failure
 ```
 
-That's it. Scorers are pure functions with no side effects. The one exception is `LLMJudge`, which is a class because it holds an API client — but its `score()` method still satisfies the contract.
+`ScorerContext` carries `input` (the original question) and `metadata` from the current `Sample`. Pure scorers accept it and ignore it. Context-aware scorers (LLMJudge) use `ctx.input` as the question when prompting the judge.
+
+Return `None` to signal a parse or API failure — the Runner records this as an error, not a score of 0.0. This preserves the distinction between "model gave a wrong answer" and "scorer couldn't evaluate the answer".
+
+Class-based scorers (LLMJudgeScorer, CascadeScorer) hold state but their `__call__` still satisfies the contract.
 
 This means you can compose scorers:
 
 ```python
-def average_scorer(completion, expected):
-    return (exact_match(completion, expected) + schema_scorer(completion, expected)) / 2
+def average_scorer(completion, expected, ctx):
+    s1 = exact_match(completion, expected, ctx)
+    s2 = schema_scorer(completion, expected, ctx)
+    if s1 is None or s2 is None:
+        return None
+    return (s1 + s2) / 2
 ```
 
 ---
@@ -84,30 +94,31 @@ Config is passed explicitly everywhere. No global config objects.
 
 ## Benchmark harness
 
-`BenchmarkRunner` is a thin wrapper around `Runner` that loops over a list of model IDs:
+`scripts/benchmark.py` loops the same dataset+scorer over multiple model IDs using the core `Runner`:
 
 ```python
-results_by_model = {}
-for model_id in model_ids:
+for model_id in selected_models:
     config = EvalConfig(model=model_id)
-    results_by_model[model_id] = runner.run(dataset, scorer, config)
+    results = Runner().run(dataset, scorer, config)
+    all_model_results.append((model_id, results))
 
-reporter.benchmark_report(results_by_model)
+reporter.benchmark_report(all_model_results, dataset_name, scorer_name)
 ```
 
-The reporter then produces a comparison table.
+The reporter writes `results/benchmarks/{date}/{time}_{dataset}_{scorer}/benchmark.json` plus one `{model_id}.jsonl` per model, then prints a comparison table (mean score, p50/p95 latency, error rate).
 
 ---
 
 ## LLM judge trace logging
 
-Every call made by `LLMJudge` logs to `results/judge_traces/{timestamp}/`:
+Every call made by `LLMJudgeScorer` logs to `results/judge_traces/{date}/{time}_{model_id}/`:
 
 ```
-results/judge_traces/2024-01-15T09-30-00/
-├── trace-001.json    # {sample_id, judge_prompt, judge_response, score, reasoning}
-├── trace-002.json
-└── ...
+results/judge_traces/2024-01-15/
+└── 093000_llama3.2_3b/
+    ├── c3-001.json    # {sample_id, evaluated_model, judge_prompt, raw_response, parsed_score, final_score, error}
+    ├── c3-002.json
+    └── ...
 ```
 
 These are the most useful debugging artifact in the whole framework. Read them when scores seem wrong.
@@ -119,8 +130,8 @@ These are the most useful debugging artifact in the whole framework. Read them w
 **Why `evals/scorers/` not `scorers/`?**  
 Scorers are part of the eval library, not top-level scripts. They're imported by the runner.
 
-**Why `runners/benchmark.py` not `evals/benchmark.py`?**  
-The benchmark harness is a runner script, not a library primitive. It uses the library but isn't part of it.
+**Why `scripts/benchmark.py` not `evals/benchmark.py`?**
+The benchmark harness is a CLI script, not a library primitive. It uses the library but isn't part of it.
 
 **Why JSONL not CSV or JSON array?**  
 JSONL is streamable — you can iterate a million-sample dataset without loading it all into memory. It's also appendable (just cat lines). Both matter when datasets get large.
