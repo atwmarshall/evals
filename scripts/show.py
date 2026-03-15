@@ -98,7 +98,7 @@ def inspect_benchmark(bench_dir: Path, verbose: bool, sample_id: str | None = No
 
         headers = ["model", "mean_score", "p50", "p95", "error_rate", "n_errors"]
         if has_format:
-            headers += ["clean_rate", "fmt_pass", "repair_fail"]
+            headers += ["clean_rate", "fmt_pass_rate", "repair_fail_rate"]
         if has_judge:
             headers.append("judge_rate")
 

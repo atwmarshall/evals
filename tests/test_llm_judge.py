@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from unittest.mock import MagicMock
+
 import pytest
 
 from evals.core import ScorerContext
@@ -112,6 +114,40 @@ class TestCallValidation:
         ctx = ScorerContext(input="What is 2+2?")
         with pytest.raises(ValueError, match="non-empty expected"):
             judge("four", "   ", ctx)
+
+
+class TestCallJudgeFormatStatus:
+    """Verify that __call__ propagates judge_format_status to ctx.metadata_out."""
+
+    def _make_response(self, content: str):
+        msg = MagicMock()
+        msg.content = content
+        resp = MagicMock()
+        resp.message = msg
+        return resp
+
+    def test_clean_response_sets_judge_format_status(self, judge):
+        judge._client.chat = MagicMock(
+            return_value=self._make_response('{"score": 3, "reasoning": "ok"}')
+        )
+        ctx = ScorerContext(input="q")
+        judge("answer", "rubric", ctx)
+        assert ctx.metadata_out["judge_format_status"] == "clean"
+
+    def test_repaired_response_sets_judge_format_status(self, judge):
+        # Truncated JSON — missing closing brace — repair should succeed
+        judge._client.chat = MagicMock(
+            return_value=self._make_response('{"score": 3, "reasoning": "ok"')
+        )
+        ctx = ScorerContext(input="q")
+        judge("answer", "rubric", ctx)
+        assert ctx.metadata_out["judge_format_status"] == "repaired"
+
+    def test_api_error_leaves_judge_format_status_absent(self, judge):
+        judge._client.chat = MagicMock(side_effect=RuntimeError("connection refused"))
+        ctx = ScorerContext(input="q")
+        judge("answer", "rubric", ctx)
+        assert "judge_format_status" not in ctx.metadata_out
 
 
 class TestFixtureIsolation:

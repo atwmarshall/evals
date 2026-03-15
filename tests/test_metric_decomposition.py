@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from evals.core import RunResult, Sample, ScorerContext
@@ -134,3 +136,75 @@ class TestSchemaFormatStatus:
         # valid JSON but fails schema (missing required "name")
         scorer('{"age": 30}', "", ctx)
         assert ctx.metadata_out["format_status"] == "clean"
+
+
+# ---------------------------------------------------------------------------
+# report() — summary string conditional display (Gap C)
+# ---------------------------------------------------------------------------
+
+class TestReportSummaryString:
+    def test_format_metrics_appear_when_format_status_present(self, tmp_path):
+        r = Reporter(results_dir=tmp_path)
+        results = [_make_result({"format_status": "clean"})]
+        summary_str, _ = r.report(results, "ds", "schema", model="m")
+        assert "clean_rate=" in summary_str
+
+    def test_format_metrics_absent_when_no_format_status(self, tmp_path):
+        r = Reporter(results_dir=tmp_path)
+        results = [_make_result({})]
+        summary_str, _ = r.report(results, "ds", "exact", model="m")
+        assert "clean_rate=" not in summary_str
+        assert "fmt_pass_rate=" not in summary_str
+        assert "repair_fail_rate=" not in summary_str
+
+    def test_judge_rate_appears_when_tier_used_present(self, tmp_path):
+        r = Reporter(results_dir=tmp_path)
+        results = [_make_result({"tier_used": "judge"})]
+        summary_str, _ = r.report(results, "ds", "cascade", model="m")
+        assert "judge_rate=" in summary_str
+
+
+# ---------------------------------------------------------------------------
+# samples.jsonl — scorer_metadata field (Gap D)
+# ---------------------------------------------------------------------------
+
+class TestSamplesJsonlMetadata:
+    def test_scorer_metadata_key_present(self, tmp_path):
+        r = Reporter(results_dir=tmp_path)
+        results = [_make_result({"format_status": "clean"})]
+        _, run_dir = r.report(results, "ds", "schema", model="m")
+        row = json.loads((run_dir / "samples.jsonl").read_text().strip())
+        assert "scorer_metadata" in row
+
+    def test_scorer_metadata_contents_match(self, tmp_path):
+        r = Reporter(results_dir=tmp_path)
+        results = [_make_result({"format_status": "repaired"})]
+        _, run_dir = r.report(results, "ds", "schema", model="m")
+        row = json.loads((run_dir / "samples.jsonl").read_text().strip())
+        assert row["scorer_metadata"]["format_status"] == "repaired"
+
+
+# ---------------------------------------------------------------------------
+# run.json — summary contains new fields (Gap E)
+# ---------------------------------------------------------------------------
+
+class TestRunJsonSummaryFields:
+    def test_format_fields_present_when_format_status_in_results(self, tmp_path):
+        r = Reporter(results_dir=tmp_path)
+        results = [_make_result({"format_status": "clean"})]
+        _, run_dir = r.report(results, "ds", "schema", model="m")
+        payload = json.loads((run_dir / "run.json").read_text())
+        s = payload["summary"]
+        assert s["clean_rate"] is not None
+        assert s["format_pass_rate"] is not None
+        assert s["repair_failure_rate"] is not None
+
+    def test_format_fields_null_when_no_format_status_in_results(self, tmp_path):
+        r = Reporter(results_dir=tmp_path)
+        results = [_make_result({})]
+        _, run_dir = r.report(results, "ds", "exact", model="m")
+        payload = json.loads((run_dir / "run.json").read_text())
+        s = payload["summary"]
+        assert s["clean_rate"] is None
+        assert s["format_pass_rate"] is None
+        assert s["repair_failure_rate"] is None

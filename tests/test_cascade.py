@@ -73,3 +73,34 @@ class TestCascadeScorer:
         scorer = CascadeScorer(fast=normalised_match, judge=mock_judge)
         assert scorer("Paris!", "paris", _ctx) == 1.0
         mock_judge.assert_not_called()
+
+
+class TestCascadeMetadataOut:
+    def test_fast_tier_sets_tier_used_and_fast_score(self):
+        ctx = ScorerContext()
+        mock_judge = MagicMock()
+        scorer = CascadeScorer(fast=_scorer(1.0), judge=mock_judge)
+        scorer("ans", "ans", ctx)
+        assert ctx.metadata_out["tier_used"] == "fast"
+        assert ctx.metadata_out["fast_score"] == 1.0
+
+    def test_judge_tier_sets_tier_used_and_fast_score(self):
+        ctx = ScorerContext()
+        mock_judge = MagicMock(return_value=0.6)
+        scorer = CascadeScorer(fast=_scorer(0.0), judge=mock_judge)
+        scorer("ans", "expected", ctx)
+        assert ctx.metadata_out["tier_used"] == "judge"
+        assert ctx.metadata_out["fast_score"] == 0.0
+
+    def test_fast_score_always_present_in_fast_path(self):
+        ctx = ScorerContext()
+        scorer = CascadeScorer(fast=_scorer(1.0), judge=MagicMock())
+        scorer("ans", "expected", ctx)
+        assert "fast_score" in ctx.metadata_out
+
+    def test_fast_score_always_present_in_judge_path(self):
+        ctx = ScorerContext()
+        mock_judge = MagicMock(return_value=0.8)
+        scorer = CascadeScorer(fast=_scorer(0.5), judge=mock_judge, threshold=0.8)
+        scorer("ans", "expected", ctx)
+        assert "fast_score" in ctx.metadata_out

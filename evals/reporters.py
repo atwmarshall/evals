@@ -99,8 +99,8 @@ class Reporter:
         if summary["clean_rate"] is not None:
             summary_parts += [
                 f"clean_rate={summary['clean_rate']:.1%}",
-                f"format_pass={summary['format_pass_rate']:.1%}",
-                f"repair_fail={summary['repair_failure_rate']:.1%}",
+                f"fmt_pass_rate={summary['format_pass_rate']:.1%}",
+                f"repair_fail_rate={summary['repair_failure_rate']:.1%}",
             ]
         if summary["judge_rate"] is not None:
             summary_parts.append(f"judge_rate={summary['judge_rate']:.1%}")
@@ -190,7 +190,7 @@ class Reporter:
 
         headers = ["model", "mean_score", "p50_latency", "p95_latency", "error_rate"]
         if has_format:
-            headers += ["clean_rate", "fmt_pass_rate", "repair_fail"]
+            headers += ["clean_rate", "fmt_pass_rate", "repair_fail_rate"]
         if has_judge:
             headers.append("judge_rate")
 
