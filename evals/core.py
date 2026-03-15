@@ -68,10 +68,13 @@ class ScorerContext:
     faithfulness) read from it.
 
     Populated by Runner from the current Sample before each scorer call.
+    Scorers write diagnostic metadata to `metadata_out`; Runner copies it to
+    RunResult.metadata after the call.
     """
 
     input: str = ""
     metadata: dict = field(default_factory=dict)
+    metadata_out: dict = field(default_factory=dict)
 
 
 @dataclass

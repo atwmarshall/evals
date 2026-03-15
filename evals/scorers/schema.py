@@ -38,18 +38,23 @@ class JSONSchemaScorer:
 
     def __call__(self, completion: str, expected: str, ctx: ScorerContext) -> float:
         cleaned = _extract_json(completion)
+        format_status = "clean"
         try:
             parsed = json.loads(cleaned)
         except json.JSONDecodeError:
             repaired = _repair_truncated_json(cleaned)
             if repaired is None:
+                ctx.metadata_out["format_status"] = "repair_failed"
                 return 0.0
             try:
                 parsed = json.loads(repaired)
+                format_status = "repaired"
                 logger.warning("json repaired (truncated): %s…", cleaned[:80])
             except json.JSONDecodeError:
+                ctx.metadata_out["format_status"] = "repair_failed"
                 return 0.0
 
+        ctx.metadata_out["format_status"] = format_status
         try:
             jsonschema.validate(parsed, self._schema)
             return 1.0

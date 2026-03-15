@@ -41,3 +41,13 @@ small model can handle 70–80% of cases. The economics are significant.
 Are small models reliable enough to gate large model calls without introducing
 systematic bias? This is an active research area — see Challenge 8 option A (reward hacking)
 for a related failure mode.
+
+## Observability: tier_used and judge_rate
+
+`CascadeScorer` writes two keys to `ctx.metadata_out` on every call:
+- `tier_used`: `"fast"` if the fast scorer met the threshold, `"judge"` if the judge was called
+- `fast_score`: the raw score from the fast tier before the escalation decision
+
+`Reporter._summarise()` derives `judge_rate` — the fraction of samples that escalated to the
+judge. This appears in `benchmark.json` and the benchmark comparison table so you can see how
+often the fast tier is saving judge calls across models.

@@ -99,6 +99,7 @@ class LLMJudgeScorer:
         final_score: float | None = None
         error: str | None = None
 
+        judge_format_status: str | None = None
         try:
             response = self._client.chat(
                 model=self.model,
@@ -106,12 +107,15 @@ class LLMJudgeScorer:
                 options={"temperature": 0.0},
             )
             raw_response = response.message.content or ""
-            parsed_score, error = self._parse_response(raw_response)
+            parsed_score, error, judge_format_status = self._parse_response(raw_response)
             if parsed_score is not None:
                 final_score = (parsed_score - 1) / (self.scale - 1)
         except Exception as e:
             error = str(e)
             logger.error("llm_judge api error: %s", e)
+
+        if judge_format_status is not None:
+            ctx.metadata_out["judge_format_status"] = judge_format_status
 
         self._write_trace(prompt, raw_response, parsed_score, final_score, error, ctx)
 
@@ -119,8 +123,9 @@ class LLMJudgeScorer:
             return None
         return final_score
 
-    def _parse_response(self, raw: str) -> tuple[int | None, str | None]:
+    def _parse_response(self, raw: str) -> tuple[int | None, str | None, str]:
         text = _strip_fences(raw)
+        format_status = "clean"
         try:
             obj = json.loads(text)
         except json.JSONDecodeError:
@@ -128,24 +133,25 @@ class LLMJudgeScorer:
             if repaired is not None:
                 try:
                     obj = json.loads(repaired)
+                    format_status = "repaired"
                     logger.warning("judge response repaired (truncated): %s…", raw[:80])
                 except json.JSONDecodeError:
-                    return None, f"judge response not valid JSON even after repair: {raw!r}"
+                    return None, f"judge response not valid JSON even after repair: {raw!r}", "repair_failed"
             else:
-                return None, f"judge response not valid JSON: {raw!r}"
+                return None, f"judge response not valid JSON: {raw!r}", "repair_failed"
 
         if "score" not in obj:
-            return None, f"judge response missing 'score' field: {obj!r}"
+            return None, f"judge response missing 'score' field: {obj!r}", format_status
 
         try:
             score = int(obj["score"])
         except (TypeError, ValueError):
-            return None, f"judge 'score' not an integer: {obj['score']!r}"
+            return None, f"judge 'score' not an integer: {obj['score']!r}", format_status
 
         if not (1 <= score <= self.scale):
-            return None, f"judge score {score} out of range 1–{self.scale}"
+            return None, f"judge score {score} out of range 1–{self.scale}", format_status
 
-        return score, None
+        return score, None, format_status
 
     def _write_trace(
         self,

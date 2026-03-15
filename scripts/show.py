@@ -92,23 +92,38 @@ def inspect_benchmark(bench_dir: Path, verbose: bool, sample_id: str | None = No
 
     # --- comparison table from benchmark.json (suppressed with --failures-only) ---
     if not failures_only:
+        models = meta["models"]
+        has_format = any(s.get("clean_rate") is not None for s in models.values())
+        has_judge = any(s.get("judge_rate") is not None for s in models.values())
+
+        headers = ["model", "mean_score", "p50", "p95", "error_rate", "n_errors"]
+        if has_format:
+            headers += ["clean_rate", "fmt_pass", "repair_fail"]
+        if has_judge:
+            headers.append("judge_rate")
+
         table_rows = []
-        for model_id, s in meta["models"].items():
+        for model_id, s in models.items():
             mean = f"{s['mean_score']:.3f}" if s["mean_score"] is not None else "—"
             p95_str = f"{s['p95_latency_ms']}ms"
             if s.get("n", 99) < 20:
                 p95_str += f" (n={s['n']}⚠)"
-            table_rows.append([
+            row = [
                 model_id,
                 mean,
                 f"{s['p50_latency_ms']}ms",
                 p95_str,
                 f"{s['error_rate']:.1%}",
                 s["api_errors"] + s["parse_failures"],
-            ])
-        print(tabulate(table_rows,
-                       headers=["model", "mean_score", "p50", "p95", "error_rate", "n_errors"],
-                       tablefmt="simple"))
+            ]
+            if has_format:
+                row.append(f"{s['clean_rate']:.1%}" if s.get("clean_rate") is not None else "—")
+                row.append(f"{s['format_pass_rate']:.1%}" if s.get("format_pass_rate") is not None else "—")
+                row.append(f"{s['repair_failure_rate']:.1%}" if s.get("repair_failure_rate") is not None else "—")
+            if has_judge:
+                row.append(f"{s['judge_rate']:.1%}" if s.get("judge_rate") is not None else "—")
+            table_rows.append(row)
+        print(tabulate(table_rows, headers=headers, tablefmt="simple"))
 
     # --- error breakdown ---
     any_errors = False
@@ -245,6 +260,15 @@ def inspect_run(run_dir: Path, verbose: bool, sample_id: str | None = None, fail
         print(f"id={r['id']}  score={r.get('score')}  latency={r.get('latency_ms')}ms  type={_error_type(r)}")
         if r.get("expected") is not None:
             print(f"expected:  {r['expected']}")
+        sm = r.get("scorer_metadata") or {}
+        if sm.get("format_status"):
+            print(f"format_status: {sm['format_status']}")
+        if sm.get("judge_format_status"):
+            print(f"judge_format_status: {sm['judge_format_status']}")
+        if sm.get("tier_used"):
+            fast = sm.get("fast_score")
+            fast_str = f"{fast:.3f}" if fast is not None else "None"
+            print(f"tier_used: {sm['tier_used']}  fast_score={fast_str}")
         print(f"error: {r.get('error')}")
         print(f"\ncompletion:\n{r.get('completion') or '(none)'}")
         return

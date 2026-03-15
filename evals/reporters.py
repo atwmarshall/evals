@@ -32,6 +32,19 @@ class Reporter:
         p95_latency = sorted_latencies[int(0.95 * len(sorted_latencies))] if sorted_latencies else 0
         total_errors = api_errors + parse_failures
         error_rate = total_errors / n if n else 0.0
+
+        statuses = [r.metadata["format_status"] for r in results if "format_status" in r.metadata]
+        if statuses:
+            n_status = len(statuses)
+            clean_rate = sum(1 for s in statuses if s == "clean") / n_status
+            format_pass_rate = sum(1 for s in statuses if s in ("clean", "repaired")) / n_status
+            repair_failure_rate = sum(1 for s in statuses if s == "repair_failed") / n_status
+        else:
+            clean_rate = format_pass_rate = repair_failure_rate = None
+
+        tiers = [r.metadata["tier_used"] for r in results if "tier_used" in r.metadata]
+        judge_rate = sum(1 for t in tiers if t == "judge") / len(tiers) if tiers else None
+
         return {
             "mean_score": mean_score,
             "p50_latency_ms": p50_latency,
@@ -41,6 +54,10 @@ class Reporter:
             "api_errors": api_errors,
             "parse_failures": parse_failures,
             "error_rate": error_rate,
+            "clean_rate": clean_rate,
+            "format_pass_rate": format_pass_rate,
+            "repair_failure_rate": repair_failure_rate,
+            "judge_rate": judge_rate,
         }
 
     def report(
@@ -79,6 +96,14 @@ class Reporter:
             f"parse_failures={summary['parse_failures']}",
             f"error_rate={summary['error_rate']:.1%}",
         ]
+        if summary["clean_rate"] is not None:
+            summary_parts += [
+                f"clean_rate={summary['clean_rate']:.1%}",
+                f"format_pass={summary['format_pass_rate']:.1%}",
+                f"repair_fail={summary['repair_failure_rate']:.1%}",
+            ]
+        if summary["judge_rate"] is not None:
+            summary_parts.append(f"judge_rate={summary['judge_rate']:.1%}")
         summary_str = "  ".join(summary_parts)
 
         now = datetime.now()
@@ -108,6 +133,7 @@ class Reporter:
                     "latency_ms": r.latency_ms,
                     "completion": r.completion,
                     "error": r.error,
+                    "scorer_metadata": r.metadata,
                 }) + "\n")
 
         return f"{table_str}\n\n{summary_str}", run_dir
@@ -156,11 +182,35 @@ class Reporter:
                         "latency_ms": r.latency_ms,
                         "completion": r.completion,
                         "error": r.error,
+                        "scorer_metadata": r.metadata,
                     }) + "\n")
+
+        has_format = any(s.get("clean_rate") is not None for s in summaries.values())
+        has_judge = any(s.get("judge_rate") is not None for s in summaries.values())
+
+        headers = ["model", "mean_score", "p50_latency", "p95_latency", "error_rate"]
+        if has_format:
+            headers += ["clean_rate", "fmt_pass_rate", "repair_fail"]
+        if has_judge:
+            headers.append("judge_rate")
+
+        if has_format or has_judge:
+            extended_rows = []
+            for (model_id, _), base_row in zip(model_results, table_rows):
+                s = summaries[model_id]
+                row = list(base_row)
+                if has_format:
+                    row.append(f"{s['clean_rate']:.1%}" if s["clean_rate"] is not None else "—")
+                    row.append(f"{s['format_pass_rate']:.1%}" if s["format_pass_rate"] is not None else "—")
+                    row.append(f"{s['repair_failure_rate']:.1%}" if s["repair_failure_rate"] is not None else "—")
+                if has_judge:
+                    row.append(f"{s['judge_rate']:.1%}" if s["judge_rate"] is not None else "—")
+                extended_rows.append(row)
+            table_rows = extended_rows
 
         table_str = tabulate(
             table_rows,
-            headers=["model", "mean_score", "p50_latency", "p95_latency", "error_rate"],
+            headers=headers,
             tablefmt="simple",
         )
 

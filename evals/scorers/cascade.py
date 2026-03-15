@@ -42,6 +42,10 @@ class CascadeScorer:
 
     def __call__(self, completion: str, expected: str, ctx: ScorerContext) -> float | None:
         fast_score = self._fast(completion, expected, ctx)
+        ctx.metadata_out["fast_score"] = fast_score
         if fast_score is not None and fast_score >= self._threshold:
+            ctx.metadata_out["tier_used"] = "fast"
             return fast_score
-        return self._judge(completion, expected, ctx)
+        result = self._judge(completion, expected, ctx)
+        ctx.metadata_out["tier_used"] = "judge"
+        return result

@@ -35,6 +35,11 @@ class Runner:
             error: str | None = None
             latency_ms: int = 0
             last_error: Exception | None = None
+            ctx = ScorerContext(
+                input=sample.input,
+                metadata={**sample.metadata, "id": sample.id},
+                metadata_out={},
+            )
 
             for attempt in range(config.max_retries):
                 try:
@@ -49,10 +54,7 @@ class Runner:
                     )
                     latency_ms = int((time.monotonic() - t0) * 1000)
                     completion = response.message.content
-                    ctx = ScorerContext(
-                        input=sample.input,
-                        metadata={**sample.metadata, "id": sample.id},
-                    )
+                    ctx.metadata_out = {}
                     score = scorer(completion, sample.expected, ctx)
                     if score is None and last_error is None:
                         error = "scorer returned None — see judge traces for details"
@@ -82,6 +84,7 @@ class Runner:
                 score=score,
                 latency_ms=latency_ms,
                 error=error,
+                metadata=ctx.metadata_out,
             ))
 
         return results
