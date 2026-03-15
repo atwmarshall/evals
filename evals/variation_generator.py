@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+import json
 import logging
 import os
+import re
+from datetime import datetime
+from pathlib import Path
 
 import ollama
 
@@ -162,6 +166,105 @@ class VariationGenerator:
             validated[variation_name] = Dataset(samples=valid_samples)
 
         return validated
+
+    def save_variations(
+        self,
+        validated: dict[str, Dataset],
+        original: dict[str, Dataset],
+        source_path: str | Path,
+        threshold: float,
+        output_dir: Path | None = None,
+    ) -> Path:
+        """Save validated variation datasets to datasets/generated/sensitivity/.
+
+        Writes one JSONL per variation type (excluding "baseline", which is
+        identical to the source) plus a generation_metadata.json file recording
+        provenance: source dataset, variation model, timestamp, threshold, and
+        per-variation discard counts.
+
+        Args:
+            validated: Output of validate_variations() — the filtered datasets.
+            original: Output of generate() — the pre-validation datasets (used to
+                      compute discard counts by comparing lengths).
+            source_path: Path to the source JSONL that was passed to generate().
+            threshold: The validation threshold that was used.
+            output_dir: Override the output directory. Defaults to
+                        datasets/generated/sensitivity/{date}_{source_stem}_{model_slug}/.
+
+        Returns:
+            Path to the directory where files were written.
+        """
+        if output_dir is None:
+            date = datetime.now().strftime("%Y-%m-%d")
+            source_stem = Path(source_path).stem
+            model_slug = re.sub(r"[:/]", "_", self.model)
+            output_dir = Path("datasets") / "generated" / "sensitivity" / f"{date}_{source_stem}_{model_slug}"
+
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        discard_counts: dict[str, int] = {}
+        for name, ds in validated.items():
+            if name == "baseline":
+                continue
+            orig_count = len(original.get(name, Dataset(samples=[])))
+            discard_counts[name] = orig_count - len(ds)
+            jsonl_path = output_dir / f"{name}.jsonl"
+            with jsonl_path.open("w") as f:
+                for sample in ds:
+                    f.write(json.dumps({
+                        "id": sample.id,
+                        "input": sample.input,
+                        "expected": sample.expected,
+                        "metadata": sample.metadata,
+                    }) + "\n")
+            logger.info("saved %d samples to %s", len(ds), jsonl_path)
+
+        metadata = {
+            "source_path": str(Path(source_path).resolve()),
+            "variation_model": self.model,
+            "generated_at": datetime.now().isoformat(timespec="seconds"),
+            "threshold": threshold,
+            "variation_types": [k for k in validated if k != "baseline"],
+            "discard_counts": discard_counts,
+            "sample_counts": {k: len(v) for k, v in validated.items() if k != "baseline"},
+        }
+        (output_dir / "generation_metadata.json").write_text(json.dumps(metadata, indent=2))
+        logger.info("saved generation metadata to %s", output_dir / "generation_metadata.json")
+
+        return output_dir
+
+    @classmethod
+    def load_variations(cls, directory: str | Path) -> dict[str, Dataset]:
+        """Load previously saved variation datasets from a generated directory.
+
+        Reads all *.jsonl files in the directory and returns them as a dict keyed
+        by variation name (filename stem). The "baseline" key is never present —
+        load the original source dataset separately if needed.
+
+        Args:
+            directory: Path to a directory written by save_variations().
+
+        Returns:
+            Dict mapping variation name to Dataset.
+
+        Raises:
+            FileNotFoundError: if the directory doesn't exist.
+            ValueError: if no JSONL files are found.
+        """
+        directory = Path(directory)
+        if not directory.exists():
+            raise FileNotFoundError(f"variation directory not found: {directory}")
+
+        jsonl_files = sorted(directory.glob("*.jsonl"))
+        if not jsonl_files:
+            raise ValueError(f"no JSONL files found in {directory}")
+
+        result: dict[str, Dataset] = {}
+        for path in jsonl_files:
+            result[path.stem] = Dataset.from_jsonl(path)
+            logger.info("loaded %d samples from %s", len(result[path.stem]), path)
+
+        return result
 
     def _vary_sample(self, input_text: str, instruction: str) -> str:
         """Call the LLM to rewrite input_text according to instruction.
