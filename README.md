@@ -1,10 +1,9 @@
 # evals-from-scratch
 
-A weekend project to build a working LLM evaluation framework from first principles.
+A project to build a working LLM evaluation framework from first principles.
 
 **Goal**: understand how evals work — and why they're hard — by building every layer yourself.
 **Stack**: Python 3.11+, Ollama, no eval frameworks.
-**Companion**: see `docs/WEEKEND_PLAN.md` for the full schedule.
 
 ---
 
@@ -33,13 +32,13 @@ evals/
 ├── scripts/
 │   ├── run_eval.py                # CLI: run a single eval
 │   ├── benchmark.py               # CLI: multi-model comparison
-│   ├── sensitivity.py             # CLI: scorer sensitivity analysis (Part A, Challenge 6)
-│   ├── robustness.py              # CLI: model robustness analysis (Part B, Challenge 6)
+│   ├── sensitivity.py             # CLI: scorer sensitivity analysis
+│   ├── robustness.py              # CLI: model robustness analysis
 │   └── show.py                    # CLI: inspect result artifacts
 ├── datasets/
-│   ├── challenge2/                # Structured extraction samples (JSONL)
-│   ├── challenge3/                # Open-ended QA samples (JSONL)
-│   ├── challenge7/                # RAG eval samples (JSONL)
+│   ├── extraction/                # Structured extraction samples (JSONL)
+│   ├── open_ended/                # Open-ended QA samples (JSONL)
+│   ├── rag/                       # RAG eval samples (JSONL)
 │   └── generated/
 │       ├── sensitivity/           # Auto-created by sensitivity.py
 │       └── robustness/            # Auto-created by robustness.py
@@ -50,7 +49,6 @@ evals/
 │   ├── sensitivity/
 │   ├── robustness/
 │   └── judge_traces/
-├── CLAUDE.md
 ├── pyproject.toml
 └── .env.example
 ```
@@ -73,22 +71,22 @@ cp .env.example .env
 
 ```bash
 uv run python scripts/run_eval.py \
-  --dataset datasets/challenge2/extraction.jsonl \
+  --dataset datasets/extraction/extraction.jsonl \
   --scorer exact --model llama3.2:3b
 
 # Schema scorer with a JSON schema file
 uv run python scripts/run_eval.py \
-  --dataset datasets/challenge2/extraction.jsonl \
-  --scorer schema --schema datasets/challenge2/schema.json
+  --dataset datasets/extraction/extraction.jsonl \
+  --scorer schema --schema datasets/extraction/schema.json
 
 # LLM judge, limit to 20 samples
 uv run python scripts/run_eval.py \
-  --dataset datasets/challenge3/qa.jsonl \
+  --dataset datasets/open_ended/qa.jsonl \
   --scorer judge --limit 20
 
 # Cascade: normalised match first, judge fallback
 uv run python scripts/run_eval.py \
-  --dataset datasets/challenge2/extraction.jsonl \
+  --dataset datasets/extraction/extraction.jsonl \
   --scorer cascade --fast-tier normalised
 ```
 
@@ -105,13 +103,13 @@ Runs the same scorer across multiple models and prints a comparison table (mean 
 ```bash
 # Pass models directly
 uv run python scripts/benchmark.py \
-  --dataset datasets/challenge2/extraction.jsonl \
-  --scorer schema --schema datasets/challenge2/schema.json \
+  --dataset datasets/extraction/extraction.jsonl \
+  --scorer schema --schema datasets/extraction/schema.json \
   --models llama3.2:3b,mistral:7b
 
 # Interactive model selection (questionary checkbox)
 uv run python scripts/benchmark.py \
-  --dataset datasets/challenge3/qa.jsonl \
+  --dataset datasets/open_ended/qa.jsonl \
   --scorer judge
 ```
 
@@ -200,18 +198,18 @@ Results saved to `results/sensitivity/{date}/{time}_{dataset}_{scorer}/`.
 ```bash
 # Full run — generates and saves variations
 uv run python scripts/sensitivity.py \
-  --dataset datasets/challenge2/extraction.jsonl \
+  --dataset datasets/extraction/extraction.jsonl \
   --scorer judge --limit 10
 
 # Reuse previously saved variations (different scorer)
 uv run python scripts/sensitivity.py \
-  --dataset datasets/challenge2/extraction.jsonl \
+  --dataset datasets/extraction/extraction.jsonl \
   --scorer cascade \
   --reuse-variations datasets/generated/sensitivity/2026-03-15_extraction_llama3.2:3b/
 
 # Run only specific variation types
 uv run python scripts/sensitivity.py \
-  --dataset datasets/challenge2/extraction.jsonl \
+  --dataset datasets/extraction/extraction.jsonl \
   --scorer judge --variations rephrase formal
 ```
 
@@ -297,17 +295,17 @@ Results saved to `results/robustness/{date}/{time}_{dataset}_{model}/` — keyed
 ```bash
 # Full run
 uv run python scripts/robustness.py \
-  --dataset datasets/challenge2/extraction.jsonl \
+  --dataset datasets/extraction/extraction.jsonl \
   --scorer judge --limit 10
 
 # Specific perturbation types only
 uv run python scripts/robustness.py \
-  --dataset datasets/challenge2/extraction.jsonl \
+  --dataset datasets/extraction/extraction.jsonl \
   --scorer exact --perturbations typos indirect
 
 # Reuse saved perturbations
 uv run python scripts/robustness.py \
-  --dataset datasets/challenge2/extraction.jsonl \
+  --dataset datasets/extraction/extraction.jsonl \
   --scorer cascade \
   --reuse-perturbations datasets/generated/robustness/2026-03-15_extraction_llama3.2:3b/
 ```
@@ -346,7 +344,7 @@ uv run python scripts/show.py results/runs/<date>/<run_dir>/ --id sample-001
 uv run python scripts/show.py results/runs/<date>/<run_dir>/ --verbose
 
 # Inspect a raw JSONL file (works for any JSONL, including per-perturbation files)
-uv run python scripts/show.py datasets/challenge2/extraction.jsonl
+uv run python scripts/show.py datasets/extraction/extraction.jsonl
 
 # Inspect judge traces
 uv run python scripts/show.py results/judge_traces/<date>/<session_dir>/
@@ -534,9 +532,9 @@ For RAG datasets, samples include an additional `context` field:
 
 ---
 
-## RAG eval (Challenge 7)
+## RAG eval
 
-The dataset at `datasets/challenge7/rag_qa.jsonl` is a fixed-context eval — `context` fields are pre-populated with relevant chunks. This isolates faithfulness and answer quality from retrieval quality.
+The dataset at `datasets/rag/rag_qa.jsonl` is a fixed-context eval — `context` fields are pre-populated with relevant chunks. This isolates faithfulness and answer quality from retrieval quality.
 
 ### Three dimensions, three scorers
 
@@ -549,17 +547,17 @@ The dataset at `datasets/challenge7/rag_qa.jsonl` is a fixed-context eval — `c
 ```bash
 # Step 1: validate dataset — which samples have insufficient context?
 uv run python scripts/run_eval.py \
-  --dataset datasets/challenge7/rag_qa.jsonl \
+  --dataset datasets/rag/rag_qa.jsonl \
   --scorer context-sufficiency
 
 # Step 2: faithfulness — is the model grounded in what the context says?
 uv run python scripts/run_eval.py \
-  --dataset datasets/challenge7/rag_qa.jsonl \
+  --dataset datasets/rag/rag_qa.jsonl \
   --scorer faithfulness --model llama3.2:3b
 
 # Step 3: accuracy — does the model produce the correct answer?
 uv run python scripts/run_eval.py \
-  --dataset datasets/challenge7/rag_qa.jsonl \
+  --dataset datasets/rag/rag_qa.jsonl \
   --scorer normalised --model llama3.2:3b
 ```
 

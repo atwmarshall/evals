@@ -5,7 +5,7 @@
 | Activity | What | When | Tool |
 |---|---|---|---|
 | Unit tests | Pure scorer functions | Write alongside each scorer | pytest |
-| Smoke tests | End-to-end CLI runs | After each challenge | `uv run python -c "..."` |
+| Smoke tests | End-to-end CLI runs | Ongoing | `uv run python -c "..."` |
 | Dataset validation | Label quality, coverage | Before running benchmarks | Manual + sensitivity.py |
 
 ## Unit tests
@@ -23,7 +23,7 @@ Asking "should I write tests for my dataset?" is a category error.
 The dataset *is* the test. You don't test your tests — you *validate* them.
 Validation means: manual review, label error checks, sensitivity analysis (`scripts/sensitivity.py`).
 
-## What not to test this weekend
+## What not to test
 Runner and reporter integration tests require mocking the API client.
 High boilerplate, low learning return. Skip for now.
 

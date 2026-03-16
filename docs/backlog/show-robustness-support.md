@@ -70,7 +70,7 @@ The overall n_robust / n_fragile / n_brittle counts
 Which perturbation was most degrading
 So the gap is specifically the aggregated cross-perturbation view — the thing that makes robustness results interpretable. Without it you have raw per-perturbation scores but no degradation signal. You'd have to manually compare typos.jsonl mean score against baseline.jsonl mean score yourself.
 
-Practically for this weekend: you can still run robustness.py and get meaningful results by reading robustness.json directly with cat results/robustness/.../robustness.json | python -m json.tool. Ugly but functional.
+You can still run robustness.py and get meaningful results by reading robustness.json directly with cat results/robustness/.../robustness.json | python -m json.tool. Ugly but functional.
 
 Add to backlog with priority — it's a 40-line addition to show.py following the exact same pattern as inspect_sensitivity(), and without it robustness results are significantly harder to read than sensitivity results. That asymmetry will bother you every time you use the tool.
 

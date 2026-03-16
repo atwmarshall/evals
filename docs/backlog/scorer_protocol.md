@@ -20,4 +20,4 @@ The current `Callable[...]` annotation is hard to read and doesn't show paramete
 
 ## When to do it
 
-After the scorer interface stabilises — i.e. once Challenge 7 (RAG) is done and `ScorerContext` has its final shape (`retrieved_chunks` etc.). Adding the Protocol before the interface is settled just means updating it twice.
+After the scorer interface stabilises — i.e. once the RAG scorer interface stabilises and `ScorerContext` has its final shape (`retrieved_chunks` etc.). Adding the Protocol before the interface is settled just means updating it twice.

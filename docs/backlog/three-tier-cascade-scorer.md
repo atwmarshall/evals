@@ -39,7 +39,7 @@ small model can handle 70–80% of cases. The economics are significant.
 
 ## Open question
 Are small models reliable enough to gate large model calls without introducing
-systematic bias? This is an active research area — see Challenge 8 option A (reward hacking)
+systematic bias? This is an active research area — see OPEN_PROBLEMS.md (reward hacking)
 for a related failure mode.
 
 ## Observability: tier_used and judge_rate

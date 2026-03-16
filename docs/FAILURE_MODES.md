@@ -2,14 +2,13 @@
 
 A living document. Add to this every time something surprises you — a scorer that misfired, a model that behaved unexpectedly, a design decision that turned out to be wrong.
 
-This document is the most valuable output of the weekend.
 
 ---
 
 ## Template for each entry
 
 ```
-### [date/time] · [challenge number] · short title
+### [date/time] · short title
 
 **What happened**: describe what you observed
 **Why it happened**: your hypothesis
@@ -23,7 +22,7 @@ This document is the most valuable output of the weekend.
 
 <!-- Fill these in as you go -->
 
-### Challenge 1 · harness design
+### Harness design
 
 _Add entries here as you build_
 
@@ -97,7 +96,7 @@ _Add entries here as you build_
 **What it means**: Add a VARIATION_MODEL env var to .env.example and make it fail loudly if judge model = variation model.
 **How you'd fix it**:
 
-### Challenge 2 · deterministic scoring
+### Deterministic scoring
 
 ### 2026-03-15 · 2/5 · partial credit blindness in run output
 
@@ -107,7 +106,7 @@ _Add entries here as you build_
 **How you'd fix it**: Add a `partial` outcome tier. Rename `type` → `outcome`. Column order: `id score outcome latency_ms`. Add `--strict` flag to `show.py` to filter to score < 0.5 only.
 **Status**: implemented — `_outcome()` in `show.py`, `_outcome_str()` in `reporters.py`, `--strict` / `-s` flag added.
 
-### 2026-03-15 · Challenge 7 · General embeddings too semantic for context sufficiency
+### 2026-03-15 · General embeddings too semantic for context sufficiency
 
 **What happened**: rag-006 scored 0.66 with embedding cosine similarity.
 Canberra not in context but semantically related to Sydney/Melbourne.
@@ -118,7 +117,7 @@ not logical entailment. Wrong tool for "is this specific fact in this context?"
 **How you'd fix it**: LLM-based YES/NO entailment check, or RAGAS-style
 atomic statement decomposition.
 
-### 2026-03-15 · Challenge 7 · Context sufficiency false negative — paraphrase mismatch
+### 2026-03-15 · Context sufficiency false negative — paraphrase mismatch
 
 **What happened**: `rag-007` scored 0.0. Context chunk [0] contains all three RAG failure modes. Expected answer names the same three modes but uses "answer quality failure" where the context says "synthesis failure." LLM judge said NO.
 **Why it happened**: the YES/NO prompt asks "does the context contain enough information to answer this question" — the LLM interpreted this as lexical matching, not semantic entailment. Same concept, different words, wrong verdict.
@@ -127,7 +126,7 @@ atomic statement decomposition.
 
 ---
 
-### 2026-03-15 · Challenge 7 · Dataset bug — expected answer requires arithmetic not in context
+### 2026-03-15 · Dataset bug — expected answer requires arithmetic not in context
 
 **What happened**: `rag-004` scored 0.0. Context states "0.75 words per token." Expected answer states "1.3 tokens per word." The LLM correctly said NO — 1.3 tokens per word requires computing 1/0.75 = 1.33, which no context chunk states explicitly.
 **Why it happened**: the expected answer was written by deriving a fact from the context rather than quoting or closely paraphrasing it. The scorer correctly identified the context as insufficient for the stated expected answer.
@@ -135,7 +134,7 @@ atomic statement decomposition.
 **How you'd fix it**: either add a context chunk stating "approximately 1.3 tokens per word" explicitly, or change the expected answer to match what the context directly supports: "approximately 0.75 words per token, or about 4 characters per token." Lesson: run context sufficiency on your dataset before running any model evals — it catches label errors cheaply.
 
 *MAJOR:*
-### 2026-03-15 · Challenge 7 · Chain-of-thought improves scorer accuracy
+### 2026-03-15 · Chain-of-thought improves scorer accuracy
 
 **What happened**: adding "provide reasoning if NO" to the context sufficiency
 prompt changed mean_score from 0.700 to 0.900. rag-003 and rag-007 flipped
@@ -161,7 +160,7 @@ Not:
 [optionally explain]
 Order matters because of left-to-right generation. The reasoning has to come before the answer token to influence it.
 **THE TRACE - see RAG-003 and RAG-007!**
-$uv run scripts/run_eval.py --dataset datasets/challenge7/rag_qa.jsonl --scorer context-sufficiency
+$uv run scripts/run_eval.py --dataset datasets/rag/rag_qa.jsonl --scorer context-sufficiency
 Running eval: 100%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 10/10 [00:03<00:00,  2.87it/s]
 id         score  outcome      latency_ms  error
 -------  -------  ---------  ------------  -------
@@ -195,7 +194,7 @@ context:
 reasoning:  NO
 
 completion: (not applicable — dataset scorer)
-$uv run scripts/run_eval.py --dataset datasets/challenge7/rag_qa.jsonl --scorer context-sufficiency
+$uv run scripts/run_eval.py --dataset datasets/rag/rag_qa.jsonl --scorer context-sufficiency
 Running eval: 100%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 10/10 [00:11<00:00,  1.12s/it]
 id         score  outcome      latency_ms  error
 -------  -------  ---------  ------------  -------
@@ -233,14 +232,14 @@ completion: (not applicable — dataset scorer)
 **END**
 
 
-### Challenge 3 · LLM-as-judge
+### LLM-as-judge
 
 _Add entries here as you build. Specific things to watch for:_
 - [ ] Position bias observed? (Y/N, with example)
 - [ ] Verbosity bias observed? (Y/N, with example)
 - [ ] Criteria sensitivity observed? (Y/N, with example)
 
-### Challenge 4 · benchmark harness
+### Benchmark harness
 
 _Add entries here as you build_
 
@@ -248,18 +247,18 @@ _Add entries here as you build_
 
 ## Sunday entries
 
-### Challenge 5 · dataset curation
+### Dataset curation
 
 _Add entries here as you build_
 
-### Challenge 6 · sensitivity analysis
+### Sensitivity analysis
 
 _Add entries here. Include your variance numbers:_
 - Exact match scorer variance: 
 - Schema scorer variance: 
 - LLM judge variance: 
 
-### Challenge 7 · RAG eval suite
+### RAG eval suite
 
 ### 2026-03-15 · 7 · ROUGE-1 threshold tuned on the test set
 
@@ -277,7 +276,7 @@ _Add entries here. Include your variance numbers:_
 **How you'd fix it**: LLM YES/NO entailment check. An LLM understands that "Canberra" is not derivable from context about Sydney and Melbourne even when embeddings disagree.
 **Status**: implemented — `ContextSufficiencyScorer` now uses a chat call asking `Does the following context contain enough information to answer this question? Answer only YES or NO.` Returns 1.0/0.0 on YES/NO, None on unexpected response (e.g. "Not enough information"). numpy dependency removed.
 
-### Challenge 8 · open problem
+### Open problem
 
 _Add entries here as you build_
 
