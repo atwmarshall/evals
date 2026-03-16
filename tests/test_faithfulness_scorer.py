@@ -122,13 +122,13 @@ class TestContextSufficiencyScorer:
 
     def test_yes_response_returns_1(self, scorer):
         scorer._client = MagicMock()
-        scorer._client.chat.return_value = _mock_response("YES")
+        scorer._client.chat.return_value = _mock_response('{"answer": "YES"}')
         ctx = _ctx(context=["The capital of Australia is Canberra."])
         assert scorer("Canberra", ctx) == 1.0
 
     def test_no_response_returns_0(self, scorer):
         scorer._client = MagicMock()
-        scorer._client.chat.return_value = _mock_response("NO")
+        scorer._client.chat.return_value = _mock_response('{"answer": "NO", "reasoning": "Canberra is not mentioned."}')
         ctx = _ctx(context=["Sydney is a city in New South Wales."])
         assert scorer("Canberra", ctx) == 0.0
 
@@ -146,7 +146,7 @@ class TestContextSufficiencyScorer:
 
     def test_context_joined_with_newlines_in_prompt(self, scorer):
         scorer._client = MagicMock()
-        scorer._client.chat.return_value = _mock_response("YES")
+        scorer._client.chat.return_value = _mock_response('{"answer": "YES"}')
         ctx = _ctx(context=["Chunk one.", "Chunk two."])
         scorer("expected", ctx)
         prompt = scorer._client.chat.call_args[1]["messages"][0]["content"]
@@ -154,25 +154,27 @@ class TestContextSufficiencyScorer:
 
     def test_context_as_string_not_list(self, scorer):
         scorer._client = MagicMock()
-        scorer._client.chat.return_value = _mock_response("YES")
+        scorer._client.chat.return_value = _mock_response('{"answer": "YES"}')
         ctx = _ctx(context="The capital of France is Paris.")
         assert scorer("Paris", ctx) == 1.0
 
     def test_format_status_clean_on_yes(self, scorer):
         scorer._client = MagicMock()
-        scorer._client.chat.return_value = _mock_response("YES")
+        scorer._client.chat.return_value = _mock_response('{"answer": "YES"}')
         ctx = _ctx(context=["Some context."])
         scorer("expected", ctx)
         assert ctx.metadata_out.get("context_sufficiency_format_status") == "clean"
-        assert ctx.metadata_out.get("sufficiency_reasoning") == "YES"
+        assert ctx.metadata_out.get("sufficiency_reasoning") is None
 
     def test_format_status_clean_on_no(self, scorer):
         scorer._client = MagicMock()
-        scorer._client.chat.return_value = _mock_response("NO — context only mentions Sydney.")
+        scorer._client.chat.return_value = _mock_response(
+            '{"answer": "NO", "reasoning": "Context only mentions Sydney, not Canberra."}'
+        )
         ctx = _ctx(context=["Some context."])
         scorer("expected", ctx)
         assert ctx.metadata_out.get("context_sufficiency_format_status") == "clean"
-        assert ctx.metadata_out.get("sufficiency_reasoning") == "NO — context only mentions Sydney."
+        assert ctx.metadata_out.get("sufficiency_reasoning") == "Context only mentions Sydney, not Canberra."
 
     def test_format_status_repair_failed_on_parse_failure(self, scorer):
         scorer._client = MagicMock()
@@ -180,17 +182,24 @@ class TestContextSufficiencyScorer:
         ctx = _ctx(context=["Some context."])
         scorer("expected", ctx)
         assert ctx.metadata_out.get("context_sufficiency_format_status") == "repair_failed"
-        assert ctx.metadata_out.get("sufficiency_reasoning") == "I'm not sure."
 
     def test_yes_case_insensitive(self, scorer):
         scorer._client = MagicMock()
-        scorer._client.chat.return_value = _mock_response("yes")
+        scorer._client.chat.return_value = _mock_response('{"answer": "yes"}')
         ctx = _ctx(context=["The capital of Australia is Canberra."])
         assert scorer("Canberra", ctx) == 1.0
 
     def test_not_enough_information_returns_none(self, scorer):
-        # A plausible hedged LLM response — starts with neither YES nor NO
+        # Plausible non-JSON LLM response — no valid answer field
         scorer._client = MagicMock()
         scorer._client.chat.return_value = _mock_response("Not enough information to determine this.")
         ctx = _ctx(context=["Some context."])
         assert scorer("expected", ctx) is None
+
+    def test_yes_reasoning_is_none(self, scorer):
+        # YES responses don't need reasoning — store None, not an empty string
+        scorer._client = MagicMock()
+        scorer._client.chat.return_value = _mock_response('{"answer": "YES", "reasoning": ""}')
+        ctx = _ctx(context=["Some context."])
+        scorer("expected", ctx)
+        assert ctx.metadata_out.get("sufficiency_reasoning") is None

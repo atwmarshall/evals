@@ -118,6 +118,110 @@ not logical entailment. Wrong tool for "is this specific fact in this context?"
 **How you'd fix it**: LLM-based YES/NO entailment check, or RAGAS-style
 atomic statement decomposition.
 
+### 2026-03-15 · Challenge 7 · Context sufficiency false negative — paraphrase mismatch
+
+**What happened**: `rag-007` scored 0.0. Context chunk [0] contains all three RAG failure modes. Expected answer names the same three modes but uses "answer quality failure" where the context says "synthesis failure." LLM judge said NO.
+**Why it happened**: the YES/NO prompt asks "does the context contain enough information to answer this question" — the LLM interpreted this as lexical matching, not semantic entailment. Same concept, different words, wrong verdict.
+**What it means**: LLM-based context sufficiency checking is sensitive to paraphrase direction. The scorer is doing lexical matching in disguise. This is the mirror image of the embedding failure — embeddings were too loose (related facts scored high), the LLM check is too strict (paraphrased facts score low).
+**How you'd fix it**: add "even if the answer would use different words than the context" to the sufficiency prompt. Or fix the expected answer to match context wording exactly ("synthesis failure" not "answer quality failure"). The deeper fix: align expected answers with context wording at dataset creation time — don't paraphrase if the context uses specific terminology.
+
+---
+
+### 2026-03-15 · Challenge 7 · Dataset bug — expected answer requires arithmetic not in context
+
+**What happened**: `rag-004` scored 0.0. Context states "0.75 words per token." Expected answer states "1.3 tokens per word." The LLM correctly said NO — 1.3 tokens per word requires computing 1/0.75 = 1.33, which no context chunk states explicitly.
+**Why it happened**: the expected answer was written by deriving a fact from the context rather than quoting or closely paraphrasing it. The scorer correctly identified the context as insufficient for the stated expected answer.
+**What it means**: this is a dataset quality bug, not a scorer failure. The scorer worked correctly — it exposed a flaw in the ground truth label. High-quality eval datasets must have expected answers that are directly derivable from context without implicit calculation or inference steps. If derivation is required, the context must include the derived fact explicitly.
+**How you'd fix it**: either add a context chunk stating "approximately 1.3 tokens per word" explicitly, or change the expected answer to match what the context directly supports: "approximately 0.75 words per token, or about 4 characters per token." Lesson: run context sufficiency on your dataset before running any model evals — it catches label errors cheaply.
+
+*MAJOR:*
+### 2026-03-15 · Challenge 7 · Chain-of-thought improves scorer accuracy
+
+**What happened**: adding "provide reasoning if NO" to the context sufficiency
+prompt changed mean_score from 0.700 to 0.900. rag-003 and rag-007 flipped
+from false negatives to correct passes.
+**Why it happened**: requiring the model to articulate the gap before committing
+to NO forces it to check the context carefully. This is chain-of-thought prompting
+— the reasoning text becomes additional context that influences the final answer.
+**What it means**: prompt design affects scorer accuracy, not just model accuracy.
+A scorer that asks for reasoning is a more reliable scorer. This is why
+LLMJudgeScorer asks for reasoning — not just for debugging but for accuracy.
+**The implication**: always ask for reasoning before the answer in judge/scorer
+prompts. "Answer first, then explain" is worse than "explain then answer" for
+accuracy. The reasoning is doing real work, not just providing a trace.
+**THE TRACE - see RAG-003 and RAG-007!**
+$uv run scripts/run_eval.py --dataset datasets/challenge7/rag_qa.jsonl --scorer context-sufficiency
+Running eval: 100%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 10/10 [00:03<00:00,  2.87it/s]
+id         score  outcome      latency_ms  error
+-------  -------  ---------  ------------  -------
+rag-001        1  pass                  0
+rag-002        1  pass                  0
+rag-003        0  fail                  0
+rag-004        1  pass                  0
+rag-005        1  pass                  0
+rag-006        0  fail                  0
+rag-007        0  fail                  0
+rag-008        1  pass                  0
+rag-009        1  pass                  0
+rag-010        1  pass                  0
+
+mean_score=0.700  p50_latency=0ms  p95_latency=0ms (n=10 ⚠)  api_errors=0  parse_failures=0  error_rate=0.0%
+
+Saved → results/runs/2026-03-15/235412_llama3.2_3b_rag_qa_context-sufficiency
+$uv run scripts/show.py results/runs/2026-03-15/235412_llama3.2_3b_rag_qa_context-sufficiency --id rag-006
+RUN  model=llama3.2:3b  dataset=rag_qa  scorer=context-sufficiency  2026-03-15T23:54:12
+     mean_score=0.700  p50=0ms  errors=0/10
+
+id=rag-006  score=0.0  latency=0ms  outcome=fail
+expected:  Canberra
+error: None
+
+context:
+  [0] Australia is a country in the southern hemisphere.
+  [1] Sydney is the largest city in Australia and a major financial centre.
+  [2] Melbourne is known for its cultural scene and is the second-largest city.
+
+reasoning:  NO
+
+completion: (not applicable — dataset scorer)
+$uv run scripts/run_eval.py --dataset datasets/challenge7/rag_qa.jsonl --scorer context-sufficiency
+Running eval: 100%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 10/10 [00:11<00:00,  1.12s/it]
+id         score  outcome      latency_ms  error
+-------  -------  ---------  ------------  -------
+rag-001        1  pass                  0
+rag-002        1  pass                  0
+rag-003        1  pass                  0
+rag-004        1  pass                  0
+rag-005        1  pass                  0
+rag-006        0  fail                  0
+rag-007        1  pass                  0
+rag-008        1  pass                  0
+rag-009        1  pass                  0
+rag-010        1  pass                  0
+
+mean_score=0.900  p50_latency=0ms  p95_latency=0ms (n=10 ⚠)  api_errors=0  parse_failures=0  error_rate=0.0%
+
+Saved → results/runs/2026-03-15/235951_llama3.2_3b_rag_qa_context-sufficiency
+
+$uv run scripts/show.py results/runs/2026-03-15/235951_llama3.2_3b_rag_qa_context-sufficiency --id rag-006
+RUN  model=llama3.2:3b  dataset=rag_qa  scorer=context-sufficiency  2026-03-15T23:59:51
+     mean_score=0.900  p50=0ms  errors=0/10
+
+id=rag-006  score=0.0  latency=0ms  outcome=fail
+expected:  Canberra
+error: None
+
+context:
+  [0] Australia is a country in the southern hemisphere.
+  [1] Sydney is the largest city in Australia and a major financial centre.
+  [2] Melbourne is known for its cultural scene and is the second-largest city.
+
+reasoning:  The context does not provide information about the capital city of Australia.
+
+completion: (not applicable — dataset scorer)
+**END**
+
+
 ### Challenge 3 · LLM-as-judge
 
 _Add entries here as you build. Specific things to watch for:_
