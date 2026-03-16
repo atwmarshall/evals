@@ -149,6 +149,17 @@ LLMJudgeScorer asks for reasoning — not just for debugging but for accuracy.
 **The implication**: always ask for reasoning before the answer in judge/scorer
 prompts. "Answer first, then explain" is worse than "explain then answer" for
 accuracy. The reasoning is doing real work, not just providing a trace.
+**The practical takeaway for your framework:**
+Your LLMJudgeScorer already does this correctly — it asks for reasoning before the score. Your context sufficiency scorer now does too. Any new judge-style scorer you add should follow the same pattern: reasoning before answer, not after.
+The exact prompt structure that works:
+[task description]
+[ask for reasoning if negative/low]
+[then ask for the answer]
+Not:
+[task description]  
+[ask for the answer]
+[optionally explain]
+Order matters because of left-to-right generation. The reasoning has to come before the answer token to influence it.
 **THE TRACE - see RAG-003 and RAG-007!**
 $uv run scripts/run_eval.py --dataset datasets/challenge7/rag_qa.jsonl --scorer context-sufficiency
 Running eval: 100%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 10/10 [00:03<00:00,  2.87it/s]
