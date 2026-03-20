@@ -61,6 +61,9 @@ class ContextSufficiencyScorer(DatasetScorer):
             logger.error("context_sufficiency api error: %s", e)
             return None
 
+        ctx.metadata_out["sufficiency_prompt"] = prompt
+        ctx.metadata_out["sufficiency_raw_response"] = raw
+
         answer, reasoning, format_status = self._parse_response(raw)
         if format_status is not None:
             ctx.metadata_out["context_sufficiency_format_status"] = format_status

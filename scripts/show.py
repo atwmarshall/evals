@@ -390,7 +390,11 @@ def inspect_run(run_dir: Path, verbose: bool, sample_id: str | None = None, fail
             print("\ncontext:")
             for i, chunk in enumerate(chunks):
                 print(f"  [{i}] {chunk}")
-        # Sufficiency reasoning (context-sufficiency scorer)
+        # Sufficiency details (context-sufficiency scorer)
+        if sm.get("sufficiency_prompt"):
+            print(f"\nprompt:\n{sm['sufficiency_prompt']}")
+        if sm.get("sufficiency_raw_response"):
+            print(f"\nraw response:\n{sm['sufficiency_raw_response']}")
         if sm.get("sufficiency_reasoning"):
             print(f"\nreasoning:  {sm['sufficiency_reasoning']}")
         # Suppress completion for dataset scorers (latency=0, completion="")
